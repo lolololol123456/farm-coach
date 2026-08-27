@@ -13,6 +13,8 @@ Coach.CONFIDENCE = {
     CACHED_HALF_LIFE_S = 30,
 }
 
+-- Shared validation and value helpers
+
 local function finite(v)
     return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
 end
@@ -58,6 +60,8 @@ function Coach.Confidence(source, partial, age_s)
     end
     return nil
 end
+
+-- Opportunity normalization and cold estimates
 
 local function normalize(sample, now, kind)
     if type(sample) ~= "table" or not finite(now) then return nil end
@@ -120,6 +124,8 @@ function Coach.ColdClearEstimate(ehp, profile)
     local reposition = positive(profile.reposition_factor) and profile.reposition_factor or 1
     return (ehp / (profile.attack_damage * profile.attacks_per_second) + engage) * reposition
 end
+
+-- Clear-time calibration
 
 function Coach.NewCalibration()
     return {}
@@ -198,6 +204,8 @@ end
 function Coach.ResetMatch(_calibration)
     return {}
 end
+
+-- Planning windows and route simulation
 
 function Coach.NextRespawnBoundary(now)
     if not finite(now) or now < 0 then return nil end
@@ -338,6 +346,8 @@ local function reason_for(best, runner)
     end
     return "BEST_NEARBY_VALUE", best.utility - runner.utility
 end
+
+-- Route stability and public planner
 
 local function same_route_plan(previous, by_key, hero, clock, opts, all)
     if type(previous) ~= "table" or type(previous.steps) ~= "table" or #previous.steps == 0 then return nil end

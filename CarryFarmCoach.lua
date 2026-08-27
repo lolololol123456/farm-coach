@@ -1,5 +1,7 @@
 if package and package.loaded then package.loaded["lib.carry_farm_coach"] = nil end
 
+-- Dependencies and farming estimates
+
 local Map      = require("lib.map")
 local MapData  = require("lib.map_data")
 local Farm     = require("lib.farm")
@@ -33,6 +35,8 @@ local K = {
     STRUCTURAL_RISK_GOLD = 160,
     ERROR_THROTTLE_S = 5,
 }
+
+-- Visual theme and runtime state
 
 local C = {
     panel = Color(12, 17, 24, 218),
@@ -75,6 +79,8 @@ local State = {
 }
 
 local LOG = Logger("CarryFarmCoach")
+
+-- Logging and shared helpers
 
 local function finite(v)
     return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
@@ -124,6 +130,8 @@ local function dist(a, b)
     local dx, dy = a.x - b.x, a.y - b.y
     return math.sqrt(dx * dx + dy * dy)
 end
+
+-- Map safety and pathfinding
 
 local function resolve_fountains(team)
     local ours, enemy
@@ -218,6 +226,8 @@ local function match_identity(hero)
     pcall(function() index = tostring(Entity.GetIndex(hero)) end)
     return tostring(start) .. ":" .. index
 end
+
+-- Camp and lane opportunity collection
 
 local function camp_visible(center)
     if not (FogOfWar and FogOfWar.IsPointVisible and Vector) then return false end
@@ -367,6 +377,8 @@ local function other_hero_near(pos)
     return false
 end
 
+-- Clear-time learning and route planning
+
 local function update_learning(t, profile)
     local first = State.plan and State.plan.steps and State.plan.steps[1]
     if not State.clear_sample and first and first.kind == "camp" and first.source == "live"
@@ -503,6 +515,8 @@ local function setup_menu()
     }
 end
 
+-- Update lifecycle
+
 local function update()
     if not in_game() then
         if State.lifecycle ~= "outside" then reset_runtime("outside") end
@@ -539,6 +553,8 @@ local function update()
     end
     recalculate(t, profile)
 end
+
+-- World route and coach panel
 
 local function alpha(color, percent)
     return Color(color.r, color.g, color.b, math.floor(color.a * percent / 100))
@@ -692,6 +708,8 @@ local function draw_panel()
     Render.Text(font,math.floor(11*scale),table.concat(route,"  >  "),Vec2(x+18*scale,y+87*scale),C.muted)
     Render.Text(font,math.floor(12*scale),reason_text(plan),Vec2(x+18*scale,y+108*scale),C.text)
 end
+
+-- Diagnostics and protected callbacks
 
 local function draw_diagnostics()
     if not diagnostics() or not State.diag then return end
