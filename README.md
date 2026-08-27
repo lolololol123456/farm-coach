@@ -18,25 +18,26 @@ This project is still being tested. Treat every recommendation as advice, especi
 
 - `CarryFarmCoach.lua` — UCZone entry script, menu, data collection, diagnostics, and drawing
 - `lib/carry_farm_coach.lua` — route scoring and planning logic
+- `lib/lane.lua` — shared lane intelligence and embedded route planner
+- `lib/route.lua` — standalone shared route planner
 - `tools/test_carry_farm_coach.lua` — planner behavior tests
 - `tools/test_carry_farm_coach_compat.lua` — compatibility checks
+- `tools/test_route_distance.lua` — verifies path-distance support in both route planners
 - `TODO.md` — known limitations and planned work
 
 ## Requirements
 
 - UCZone API v2.0
 - A current Umbrella installation
-- These Umbrella libraries in `scripts/lib`: `map.lua`, `map_data.lua`, `farm.lua`, `lane.lua`, `draw.lua`, and `route.lua`
+- These additional Umbrella libraries in `scripts/lib`: `map.lua`, `map_data.lua`, `farm.lua`, and `draw.lua`
 
-The shared Umbrella libraries are intentionally not copied into this repository. Get the current versions from their original maintainer instead of using stale duplicates.
-
-The shared route planner must support the optional `distance_fn` route option in both `lib/lane.lua` and `lib/route.lua`. Older copies still generate candidates with straight-line distance, even though Carry Farm Coach validates the result with real path distance afterward.
+The two route-planning libraries modified by this project are included so everyone tests the same implementation. The remaining shared libraries should come from a current Umbrella installation.
 
 ## Installation
 
 1. Download the repository using **Code → Download ZIP**, then extract it.
 2. Copy `CarryFarmCoach.lua` into your Umbrella `scripts` folder.
-3. Copy `lib/carry_farm_coach.lua` into Umbrella's `scripts/lib` folder.
+3. Copy all three files from this repository's `lib` folder into Umbrella's `scripts/lib` folder. Replace the existing `lane.lua` and `route.lua` when prompted.
 4. Confirm the required shared libraries listed above are already in `scripts/lib`.
 5. Reload scripts in UCZone or restart Dota 2.
 6. Open the script menu under `Carry Farm Coach` and enable it while playing Luna.
@@ -78,4 +79,4 @@ The immediate goal is a reliable simple route coach. Enemy-location risk, ally c
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Carry Farm Coach is released under the [MIT License](LICENSE). The included shared libraries retain their original authorship; see [THIRD_PARTY_NOTICE.md](THIRD_PARTY_NOTICE.md).
