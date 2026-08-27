@@ -30,6 +30,8 @@ This project is still being tested. Treat every recommendation as advice, especi
 
 The shared Umbrella libraries are intentionally not copied into this repository. Get the current versions from their original maintainer instead of using stale duplicates.
 
+The shared route planner must support the optional `distance_fn` route option in both `lib/lane.lua` and `lib/route.lua`. Older copies still generate candidates with straight-line distance, even though Carry Farm Coach validates the result with real path distance afterward.
+
 ## Installation
 
 1. Download the repository using **Code → Download ZIP**, then extract it.

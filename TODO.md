@@ -19,6 +19,7 @@
 ## Routing quality
 
 - [x] Keep an actively cleared live camp as route step one until it is empty or Luna leaves.
+- [x] Use real walking distance during candidate generation and final route scoring.
 - [ ] Draw the actual `GridNav.BuildPath` polyline instead of a straight visual connector.
 - [ ] Log whether each distance used pathfinding or straight-line fallback.
 - [ ] Validate the three-second path cache against destroyed and temporary trees.

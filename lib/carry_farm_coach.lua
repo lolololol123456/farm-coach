@@ -430,6 +430,7 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
         risk_hard = math.huge,
         risk_weight = 1,
         step_decay = positive(opts.step_decay) and math.min(1, opts.step_decay) or 0.92,
+        distance_fn = cfg.distance_fn,
     }
     local hero_state = { pos = copy_pos(hero.pos), move_speed = hero.move_speed, anchors = {}, tp = nil }
     local candidates, remaining = {}, {}

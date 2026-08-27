@@ -294,6 +294,28 @@ do
         path_aware and path_aware.steps[1].key == "walkable-near",
         step_keys(path_aware))
 
+    local alternate_continuation = Coach.Plan({
+        opp("best-first", "camp", 300, 200, 1),
+        opp("blocked-second", "camp", 600, 190, 1),
+        opp("walkable-second", "camp", 300, 100, 1),
+    }, hero, {now=100,boundary=120}, {
+        max_steps=2, immediate_leg_cap_s=12, travel_cost_per_s=0,
+        stability_margin=0,
+        distance_fn=function(from, target)
+            if from.x == 300 and from.y == 0 and target.x == 600 and target.y == 0 then
+                return 6000
+            end
+            if from.x == 600 and from.y == 0 and target.x == 300 and target.y == 0 then
+                return 6000
+            end
+            local dx, dy = target.x - from.x, target.y - from.y
+            return math.sqrt(dx * dx + dy * dy)
+        end,
+    })
+    check("path-aware candidate generation keeps the best first camp with a valid continuation",
+        alternate_continuation and step_keys(alternate_continuation) == "best-first,walkable-second",
+        step_keys(alternate_continuation))
+
     local tempo_route = Coach.Plan({
         opp("near-small-a", "camp", 300, 100, 5),
         opp("near-small-b", "camp", 600, 100, 5),
