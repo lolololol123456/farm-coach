@@ -18,29 +18,31 @@ This project is still being tested. Treat every recommendation as advice, especi
 
 - `CarryFarmCoach.lua` — UCZone entry script, menu, data collection, diagnostics, and drawing
 - `lib/carry_farm_coach.lua` — route scoring and planning logic
+- `lib/draw.lua` — shared world-to-screen and drawing helpers
+- `lib/farm.lua` — shared farming valuation and risk helpers
 - `lib/lane.lua` — shared lane intelligence and embedded route planner
+- `lib/map.lua` — shared camp, neutral, and pathfinding helpers
+- `lib/map_data.lua` — shared Dota map positions
 - `lib/route.lua` — standalone shared route planner
 - `tools/test_carry_farm_coach.lua` — planner behavior tests
 - `tools/test_carry_farm_coach_compat.lua` — compatibility checks
 - `tools/test_route_distance.lua` — verifies path-distance support in both route planners
+- `tools/test_repository_load.lua` — verifies a fresh checkout has every required Lua dependency
 - `TODO.md` — known limitations and planned work
 
 ## Requirements
 
 - UCZone API v2.0
 - A current Umbrella installation
-- These additional Umbrella libraries in `scripts/lib`: `map.lua`, `map_data.lua`, `farm.lua`, and `draw.lua`
-
-The two route-planning libraries modified by this project are included so everyone tests the same implementation. The remaining shared libraries should come from a current Umbrella installation.
+- No separate library download is required; every Lua dependency used by Carry Farm Coach is included in this repository.
 
 ## Installation
 
 1. Download the repository using **Code → Download ZIP**, then extract it.
 2. Copy `CarryFarmCoach.lua` into your Umbrella `scripts` folder.
-3. Copy all three files from this repository's `lib` folder into Umbrella's `scripts/lib` folder. Replace the existing `lane.lua` and `route.lua` when prompted.
-4. Confirm the required shared libraries listed above are already in `scripts/lib`.
-5. Reload scripts in UCZone or restart Dota 2.
-6. Open the script menu under `Carry Farm Coach` and enable it while playing Luna.
+3. Copy the entire contents of this repository's `lib` folder into Umbrella's `scripts/lib` folder. Replace existing files when prompted.
+4. Reload scripts in UCZone or restart Dota 2.
+5. Open the script menu under `Carry Farm Coach` and enable it while playing Luna.
 
 For the default Windows layout, the result should look like this:
 
