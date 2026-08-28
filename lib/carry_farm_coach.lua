@@ -581,4 +581,81 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
     return best
 end
 
+function Coach.BuildDiagnosticSnapshot(opportunities, plan, hero, opts, active, active_reason)
+    opts = opts or {}
+    local limit = math.max(1, math.floor(opts.limit or 3))
+    local selected, rejected = {}, {}
+    for i, step in ipairs(plan and plan.steps or {}) do selected[step.key] = i end
+    for _, row in ipairs(plan and plan.diagnostics and plan.diagnostics.rejections or {}) do
+        rejected[row.key] = row.reason
+    end
+    local nearby = {}
+    if type(hero) == "table" and copy_pos(hero.pos) and positive(hero.move_speed) then
+        for _, opportunity in ipairs(opportunities or {}) do
+            if valid_opportunity(opportunity) then
+                local distance = route_distance(opts, hero.pos, opportunity.pos)
+                local travel_t = distance / hero.move_speed
+                local score = opportunity.value
+                    - travel_t * (opts.travel_cost_per_s or 0)
+                    - (opportunity.risk or 0) * (opts.risk_gold or 0)
+                nearby[#nearby + 1] = {
+                    key=opportunity.key, kind=opportunity.kind, source=opportunity.source,
+                    value=opportunity.value, distance=distance, travel_t=travel_t,
+                    clear_t=opportunity.clear_t, score=score,
+                    confidence=opportunity.confidence, risk=opportunity.risk or 0,
+                    decision=rejected[opportunity.key] or "unranked",
+                    selected_rank=selected[opportunity.key],
+                }
+            end
+        end
+        table.sort(nearby, function(a, b)
+            if a.distance ~= b.distance then return a.distance < b.distance end
+            return a.key < b.key
+        end)
+        while #nearby > limit do nearby[#nearby] = nil end
+    end
+    local routes = {}
+    for i = 1, math.min(limit, #(plan and plan.alternatives or {})) do
+        local route = plan.alternatives[i]
+        routes[i] = {
+            route=route.route, gold=route.gold, travel_t=route.travel_t,
+            total_t=route.total_t, net_gold=route.net_gold, utility=route.utility,
+        }
+    end
+    local change = plan and plan.change or {}
+    return {
+        nearby=nearby,
+        routes=routes,
+        change={old_route=change.old_route or "none",new_route=change.new_route or "none",
+            trigger=change.trigger or "no_plan",stability=change.stability or "none",
+            margin_pct=change.margin_pct},
+        active={key=active and active.key or "none",confirmed=active and active.confirmed == true,
+            reason=active_reason or "none"},
+    }
+end
+
+function Coach.PushDiagnosticHistory(history, snapshot, at, limit)
+    local out = {}
+    for i, row in ipairs(history or {}) do out[i] = row end
+    if type(snapshot) ~= "table" then return out end
+    local change, active = snapshot.change or {}, snapshot.active or {}
+    local signature = table.concat({
+        change.new_route or "none",
+        change.trigger or "no_plan",
+        change.stability or "none",
+        active.key or "none",
+        active.reason or "none",
+    }, "|")
+    if out[1] and out[1].signature == signature then return out end
+    table.insert(out, 1, {
+        at=at or 0, signature=signature,
+        route=change.new_route or "none", trigger=change.trigger or "no_plan",
+        stability=change.stability or "none",
+        active_key=active.key or "none", active_reason=active.reason or "none",
+    })
+    local cap = math.max(1, math.floor(limit or 5))
+    while #out > cap do out[#out] = nil end
+    return out
+end
+
 return Coach

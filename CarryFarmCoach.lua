@@ -80,6 +80,8 @@ local State = {
     path_diag = {},
     camp_scan_diag = {},
     camp_state_history = {},
+    diagnostic_snapshot = nil,
+    diagnostic_history = {},
     plan_id = 0,
     our_fountain = nil,
     enemy_fountain = nil,
@@ -239,6 +241,7 @@ local function reset_runtime(lifecycle)
     State.path_cache = {}
     State.plan_id = 0
     State.camp_state_history = {}
+    State.diagnostic_snapshot, State.diagnostic_history = nil, {}
     State.our_fountain, State.enemy_fountain = nil, nil
     State.next_sample_at, State.last_reason, State.diag = 0, "initial", nil
     State.lifecycle = lifecycle or "idle"
@@ -586,6 +589,18 @@ local function recalculate(t, profile)
         active=active_reason or "none",
     })
     if diagnostics() then
+        if Coach.BuildDiagnosticSnapshot and Coach.PushDiagnosticHistory then
+            State.diagnostic_snapshot = Coach.BuildDiagnosticSnapshot(all, plan, profile, {
+                limit=3,
+                travel_cost_per_s=mget("travel_cost",K.TRAVEL_GOLD_PER_S),
+                risk_gold=K.STRUCTURAL_RISK_GOLD,
+                distance_fn=walk_distance,
+            }, State.active_camp, active_reason)
+            State.diagnostic_history = Coach.PushDiagnosticHistory(
+                State.diagnostic_history, State.diagnostic_snapshot, t, 5)
+        else
+            State.diagnostic_snapshot = nil
+        end
         local rows = {}
         for _, d in ipairs(State.camp_scan_diag or {}) do
             local path_s = walk_distance(profile.pos, d.pos) / profile.move_speed
@@ -692,7 +707,7 @@ local function setup_menu()
         hud_opacity = visual:Slider("Coach background opacity", 20, 100, 84, "%d%%"),
         diagnostics = diag:Switch("Diagnostics", false, "\u{f188}"),
         verbosity = diag:Slider("Log detail", 0, 3, 1, "%d"),
-        candidates = diag:Switch("Show route candidates", false),
+        candidates = diag:Switch("Show testing overlay", false),
     }
 end
 
@@ -894,30 +909,52 @@ end
 
 local function draw_diagnostics()
     if not diagnostics() or not State.diag then return end
-    local s=Render.ScreenSize(); local x,y=18,s.y*0.28
+    local s=Render.ScreenSize(); local x,y=18,s.y*0.24
     local lines={
         string.format("COACH DIAG  camps=%d waves=%d candidates=%d chosen=%d",State.diag.camps,State.diag.waves,State.diag.candidates,State.diag.chosen),
         string.format("reason=%s deadline=%.0f respawn=%.0f sample=%s",State.diag.reason,
             State.diag.deadline or 0,State.diag.boundary,
             State.clear_sample and State.clear_sample.source_key or "none"),
     }
-    if mget("candidates",false) then
-        local hp=State.hero and pos_plain(Entity.GetAbsOrigin(State.hero))
-        local ms=State.hero and NPC.GetMoveSpeed and NPC.GetMoveSpeed(State.hero) or 0
-        local chosen={}
-        for i,s in ipairs(State.plan and State.plan.steps or {}) do chosen[s.key]=i end
-        for _,o in ipairs(State.opportunities) do
-            local d=hp and walk_distance(hp,o.pos) or 0
-            local travel=ms and ms>0 and d/ms or 0
-            local net=o.value-travel*mget("travel_cost",K.TRAVEL_GOLD_PER_S)
-                -(o.risk or 0)*K.STRUCTURAL_RISK_GOLD
-            lines[#lines+1]=string.format("%s %s %s g%.0f d%.0f tr%.1f clear%.1f net%.0f risk%.2f conf%.2f %s",
-                chosen[o.key] and ("CHOSEN#"..chosen[o.key]) or "eligible",
-                o.key,o.kind,o.value,d,travel,o.clear_t,net,o.risk or 0,o.confidence,o.source)
+    local snapshot = State.diagnostic_snapshot
+    if mget("candidates",false) and snapshot then
+        local active=snapshot.active or {}
+        local change=snapshot.change or {}
+        lines[#lines+1]=string.format("ACTIVE  %s  state=%s  confirmed=%s",
+            active.key or "none",active.reason or "none",active.confirmed and "yes" or "no")
+        lines[#lines+1]=string.format("CHANGE  %s  %s  %s  margin=%s",
+            change.stability or "none",change.trigger or "no_plan",change.new_route or "none",
+            change.margin_pct and string.format("%.1f%%",change.margin_pct) or "n/a")
+        lines[#lines+1]="NEARBY  path distance / travel / value / score / decision"
+        for i,row in ipairs(snapshot.nearby or {}) do
+            local rank=row.selected_rank and ("route #"..row.selected_rank) or row.decision
+            lines[#lines+1]=string.format("%d  %-12s %5.0fu  %4.1fs  %3.0fg  %4.0f  %s",
+                i,row.key,row.distance,row.travel_t,row.value,row.score,rank)
+        end
+        lines[#lines+1]="ROUTES  actual planner ranking"
+        for i,row in ipairs(snapshot.routes or {}) do
+            lines[#lines+1]=string.format("%d  %s  gold %.0f  walk %.1fs  net %.0f",
+                i,row.route,row.gold,row.travel_t,row.net_gold)
+        end
+        lines[#lines+1]="RECENT CHANGES"
+        for i,row in ipairs(State.diagnostic_history or {}) do
+            if i>3 then break end
+            lines[#lines+1]=string.format("%.0f  %s  %s  active=%s/%s",
+                row.at,row.stability,row.trigger,row.active_key,row.active_reason)
         end
     end
+    local detail = mget("candidates",false) and snapshot
+    local width = detail and math.min(760,s.x-36) or math.min(650,s.x-36)
+    local height = #lines*17+22
+    Render.FilledRect(Vec2(x,y),Vec2(x+width,y+height),Color(8,12,17,220),8)
+    Render.FilledRect(Vec2(x,y),Vec2(x+3,y+height),C.primary,3)
+    pcall(Render.Rect,Vec2(x,y),Vec2(x+width,y+height),C.panel_edge,8,
+        Enum and Enum.DrawFlags and Enum.DrawFlags.RoundCornersAll or nil,1)
     for i,line in ipairs(lines) do
-        Render.Text(Draw.Font(),13,line,Vec2(x,y+(i-1)*17),i<=2 and C.text or C.muted)
+        local section = line=="NEARBY  path distance / travel / value / score / decision"
+            or line=="ROUTES  actual planner ranking" or line=="RECENT CHANGES"
+        Render.Text(Draw.Font(),12,line,Vec2(x+13,y+11+(i-1)*17),
+            i<=2 and C.text or (section and C.primary or C.muted))
     end
 end
 

@@ -524,5 +524,66 @@ do
         invalidated and invalidated.change and invalidated.change.stability == "invalidated")
 end
 
+print("compact testing diagnostics")
+do
+    local opportunities = {
+        opp("far", "camp", 1200, 160, 5),
+        opp("near", "camp", 300, 80, 4),
+        opp("middle", "camp", 600, 100, 4),
+        opp("fourth", "camp", 900, 120, 4),
+    }
+    opportunities[2].source = "live"
+    opportunities[3].source = "cached"
+    local plan = {
+        steps = { opportunities[3], opportunities[1] },
+        alternatives = {
+            {route="middle,far",gold=260,travel_t=6,total_t=15,net_gold=230,utility=229},
+            {route="near,middle",gold=180,travel_t=3,total_t=11,net_gold=165,utility=164},
+        },
+        diagnostics = { rejections = {
+            {key="near",reason="lost_on_score"},
+            {key="middle",reason="selected"},
+            {key="far",reason="selected"},
+            {key="fourth",reason="pool_cap"},
+        }},
+        change = {old_route="near,middle",new_route="middle,far",trigger="BEST_NEARBY_VALUE",
+            stability="replaced",margin_pct=6.5},
+    }
+    local snapshot = Coach.BuildDiagnosticSnapshot(opportunities, plan,
+        {pos={x=0,y=0},move_speed=300}, {
+            limit=3, travel_cost_per_s=5, risk_gold=100,
+        }, {key="middle",confirmed=true}, "confirmed")
+    check("diagnostics show only the three nearest opportunities",
+        snapshot and #snapshot.nearby == 3
+        and snapshot.nearby[1].key == "near"
+        and snapshot.nearby[2].key == "middle"
+        and snapshot.nearby[3].key == "fourth")
+    check("diagnostics expose path travel and planner rejection labels",
+        snapshot and math.abs(snapshot.nearby[1].distance - 300) < 1e-6
+        and math.abs(snapshot.nearby[1].travel_t - 1) < 1e-6
+        and snapshot.nearby[1].decision == "lost_on_score"
+        and snapshot.nearby[2].selected_rank == 1)
+    check("diagnostics include actual route alternatives and route-change cause",
+        snapshot and #snapshot.routes == 2
+        and snapshot.routes[1].route == "middle,far"
+        and snapshot.change.trigger == "BEST_NEARBY_VALUE"
+        and snapshot.change.stability == "replaced")
+    check("diagnostics expose active-camp ownership evidence",
+        snapshot and snapshot.active.key == "middle"
+        and snapshot.active.reason == "confirmed"
+        and snapshot.active.confirmed == true)
+
+    local history = Coach.PushDiagnosticHistory({}, snapshot, 100, 3)
+    history = Coach.PushDiagnosticHistory(history, snapshot, 101, 3)
+    check("diagnostic history ignores an unchanged decision", #history == 1)
+    for i = 1, 4 do
+        local changed = Coach.BuildDiagnosticSnapshot(opportunities, plan,
+            {pos={x=0,y=0},move_speed=300}, {limit=3}, nil, "state-" .. i)
+        history = Coach.PushDiagnosticHistory(history, changed, 101 + i, 3)
+    end
+    check("diagnostic history keeps only the newest decisions",
+        #history == 3 and history[1].at == 105 and history[3].at == 103)
+end
+
 print(string.format("RESULT pass=%d fail=%d", pass, fail))
 if fail > 0 then os.exit(1) end
