@@ -430,6 +430,16 @@ do
     check("active camp clear stays first when an urgent wave appears",
         locked_plan and locked_plan.steps[1].key == "active-camp",
         step_keys(locked_plan))
+    local locked_depth = Coach.Plan({
+        active_camp, follow_camp, opp("third-camp", "camp", 900, 90, 5),
+        opp("fourth-camp", "camp", 1200, 80, 5),
+    }, hero, {now=100,boundary=200}, {
+        max_steps=4, immediate_leg_cap_s=12, stability_margin=0,
+        locked_first_key="active-camp",
+    })
+    check("active camp locking preserves the configured full route depth",
+        locked_depth and #locked_depth.steps == 4 and locked_depth.steps[1].key == "active-camp",
+        step_keys(locked_depth))
 
     local distant_wave = {
         opp("unreachable-wave", "wave", 6000, 400, 5, 110),

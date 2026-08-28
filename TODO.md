@@ -19,6 +19,7 @@
 ## Routing quality
 
 - [x] Keep an actively cleared live camp as route step one until it is empty or Luna leaves.
+- [x] Preserve the configured route depth while an active camp is locked as step one.
 - [ ] Reserve camps already being farmed by an allied hero so the route does not encourage stealing them.
 - [ ] Re-test active-camp ownership with a teammate: confirm ally damage never locks Luna's camp, then confirm Luna joining the same camp still produces `active=attack` and `active=confirmed`.
 - [ ] Review proximity-only `clear_sample_reject | why=contested`; it currently rejects clear-time learning as soon as an ally is nearby, even before that ally attacks.

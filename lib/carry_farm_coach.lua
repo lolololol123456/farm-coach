@@ -522,12 +522,26 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
     local locked = locked_key and by_key[locked_key] or nil
     if locked then
         local locked_best = simulate({locked},hero,clock,cfg,pool)
-        for _, o in ipairs(pool) do
-            if o.key ~= locked_key then
-                local candidate = simulate({locked,o},hero,clock,cfg,pool)
-                if candidate and (not locked_best or candidate.utility > locked_best.utility) then
-                    locked_best = candidate
-                end
+        if locked_best and max_steps > 1 and locked_best.timeline and locked_best.timeline[1] then
+            local remaining_targets = {}
+            for _, target in ipairs(targets) do
+                if target.key ~= locked_key then remaining_targets[#remaining_targets+1] = target end
+            end
+            local finish = locked_best.timeline[1].finish
+            local continuation_opts = {
+                now=finish, horizon_s=math.max(0,clock.boundary-finish),
+                max_steps=max_steps-1, max_leg_s=cfg.immediate_leg_cap_s,
+                pool_cap=#remaining_targets, risk_hard=math.huge, risk_weight=1,
+                step_decay=route_opts.step_decay, distance_fn=cfg.distance_fn,
+            }
+            local continuation = Route.Plan(remaining_targets, {
+                pos=copy_pos(locked.pos),move_speed=hero.move_speed,anchors={},tp=nil,
+            }, continuation_opts)
+            if continuation and continuation.steps and #continuation.steps > 0 then
+                local sequence = {locked}
+                for _, target in ipairs(continuation.steps) do sequence[#sequence+1] = target.ref end
+                local candidate = simulate(sequence,hero,clock,cfg,pool)
+                if candidate then locked_best = candidate end
             end
         end
         if locked_best then
