@@ -271,6 +271,9 @@ do
         max_steps = 3, immediate_leg_cap_s = 12, end_setup_radius = 700,
         stability_margin = 0,
     })
+    check("plan exposes ranked alternative routes for diagnostics",
+        plan and type(plan.alternatives) == "table" and #plan.alternatives >= 1
+        and type(plan.alternatives[1].route) == "string")
     check("mixed route catches expiring wave first",
         plan and plan.steps[1].key == "bottom-wave", step_keys(plan))
     check("mixed route contains lane and jungle steps",

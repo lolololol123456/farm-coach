@@ -4,7 +4,7 @@ package.path = "./?.lua;../?.lua;" .. package.path
 local hero = {id=1,pos={x=0,y=0},team=2,name="npc_dota_hero_luna"}
 local ally = {id=2,pos={x=120,y=0},team=2,name="npc_dota_hero_sven"}
 local creep = {id=3,pos={x=100,y=0},team=4,hp=900}
-local captured, planned, errors = nil, nil, {}
+local captured, planned, errors, debug_lines = nil, nil, {}, {}
 
 local Map = {
     Camps=function() return {{center={x=100,y=0,z=0},camp={},type=0}} end,
@@ -64,10 +64,19 @@ Color=function(r,g,b,a) return {r=r,g=g,b=b,a=a} end
 Logger=function() return {
     error=function(_,message) errors[#errors+1]=message end,
     info=function() end,
-    debug=function() end,
+    debug=function(_,message) debug_lines[#debug_lines+1]=message end,
 } end
 local widget={Get=function() return nil end}
-local group={Switch=function() return widget end,Slider=function() return widget end}
+local group={
+    Switch=function(_,label)
+        if label == "Diagnostics" then return {Get=function() return true end} end
+        return widget
+    end,
+    Slider=function(_,label)
+        if label == "Log detail" then return {Get=function() return 3 end} end
+        return widget
+    end,
+}
 Menu={Find=function() return group end,Create=function() return group end}
 Engine={IsInGame=function() return true end}
 GameRules={GetGameTime=function() return 100 end,GetGameStartTime=function() return 10 end}
@@ -95,9 +104,13 @@ NPC={
 local script = dofile("CarryFarmCoach.lua")
 script.OnUpdateEx()
 
+local saw_candidates = false
+for _, line in ipairs(debug_lines) do
+    if tostring(line):find("camp_candidates", 1, true) then saw_candidates = true end
+end
 local pass = captured and captured.ctx and captured.ctx.attacking == true
     and #captured.ctx.allies == 1 and captured.ctx.allies[1].pos.x == 120
-    and planned and planned.locked_first_key == "near" and #errors == 0
+    and planned and planned.locked_first_key == "near" and saw_candidates and #errors == 0
 if not pass then
     io.stderr:write(string.format("ACTIVE CAMP WIRING FAIL captured=%s allies=%s locked=%s errors=%d\n",
         tostring(captured ~= nil), tostring(captured and captured.ctx and #captured.ctx.allies),

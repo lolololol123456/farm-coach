@@ -76,6 +76,7 @@ local State = {
     last_draw_at = nil,
     last_log_signature = nil,
     path_cache = {},
+    camp_scan_diag = {},
     our_fountain = nil,
     enemy_fountain = nil,
 }
@@ -272,6 +273,7 @@ end
 
 local function camp_opportunities(t, profile)
     local out, by_key, activity = {}, {}, {}
+    State.camp_scan_diag = {}
     State.confirmed_empty = {}
     local camps = Map.Camps() or {}
     local neutrals = Map.AllNeutrals() or {}
@@ -295,6 +297,8 @@ local function camp_opportunities(t, profile)
             local key = center and camp_key(center)
             local cleared_until = key and State.camp_cleared_until[key]
             local creeps = Map.CampCreeps(cd.camp, neutrals) or {}
+            local box_count = #creeps
+            local nearest_count = key and #(nearest_creeps[key] or {}) or 0
             if key and #creeps == 0 and nearest_creeps[key] then creeps = nearest_creeps[key] end
             local observation
             local scan_state = Coach.CampScanState(cleared_until, #creeps, t)
@@ -336,6 +340,16 @@ local function camp_opportunities(t, profile)
                     normalized.category = observation.category
                     out[#out + 1], by_key[normalized.key] = normalized, normalized
                 end
+            end
+            if key and center then
+                State.camp_scan_diag[#State.camp_scan_diag+1] = {
+                    key=key, pos=center, tier=CAMP_KIND[cd.type], box=box_count,
+                    nearest=nearest_count, live=#creeps, scan=scan_state,
+                    source=observation and observation.source or "none",
+                    included=by_key[key] ~= nil,
+                    cleared_until=State.camp_cleared_until[key],
+                    gold=observation and observation.gold or 0,
+                }
             end
         end
     end
@@ -546,6 +560,28 @@ local function recalculate(t, profile)
         locked=locked_first or "none",
         active=active_reason or "none",
     })
+    if diagnostics() then
+        local rows = {}
+        for _, d in ipairs(State.camp_scan_diag or {}) do
+            local path_s = walk_distance(profile.pos, d.pos) / profile.move_speed
+            rows[#rows+1] = {d=d,path_s=path_s}
+        end
+        table.sort(rows, function(a,b) return a.path_s < b.path_s end)
+        local items = {}
+        for i = 1, math.min(8, #rows) do
+            local r, d = rows[i], rows[i].d
+            items[i] = string.format("%s:%s:g%.0f:p%.1f:b%d:n%d:l%d:%s:%s:c%s",
+                d.key,d.tier,d.gold,r.path_s,d.box,d.nearest,d.live,d.scan,d.source,
+                d.cleared_until and string.format("%.0f",d.cleared_until) or "-")
+        end
+        logline(2, "camp_candidates", {items=table.concat(items,";")})
+        local alternatives = {}
+        for i, a in ipairs(plan and plan.alternatives or {}) do
+            alternatives[i] = string.format("%s:g%.0f:walk%.1f:t%.1f:net%.1f:u%.3f",
+                a.route,a.gold,a.travel_t,a.total_t,a.net_gold,a.utility)
+        end
+        logline(2, "route_alternatives", {items=#alternatives > 0 and table.concat(alternatives,";") or "none"})
+    end
     update_learning(t, profile)
 end
 

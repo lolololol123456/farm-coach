@@ -505,7 +505,16 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
         if locked_best then best = locked_best end
     end
 
+    local alternatives = {}
+    for i = 1, math.min(5, #candidates) do
+        local c = candidates[i]
+        alternatives[i] = {
+            route=c.sequence_key, gold=c.gold, travel_t=c.travel_t,
+            total_t=c.total_t, net_gold=c.net_gold, utility=c.utility,
+        }
+    end
     best.reason_code, best.reason_delta = reason_for(best, runner)
+    best.alternatives = alternatives
     best.net_value = best.net_gold
     best.tempo_value = best.utility
     best.urgent_gold, best.confidence_sum, best.sequence_key, best.utility = nil, nil, nil, nil
