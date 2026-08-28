@@ -973,7 +973,7 @@ end
 ---target is COLLECTED only if it finishes within the horizon and before window.to. The walk STOPS at
 ---the first uncollectable target (a sequence is only as good as its collectable prefix). Times are
 ---absolute on the same clock as opts.now (windows are absolute game-clock times). Pure.
----@return table { collected = {FarmTarget,...}, gold = number, time = number }
+---@return table { collected = {FarmTarget,...}, collected_values = {number,...}, gold = number, time = number }
 function Route._timeline(seq, hero_state, opts)
     local now      = opts.now or 0
     local deadline = now + (opts.horizon_s or 30)
@@ -988,7 +988,7 @@ function Route._timeline(seq, hero_state, opts)
     local rsv   = hero_state.reserve_mana or 0
     local hpfl  = hero_state.hp_floor   or 0
     local frac  = opts.refill_frac or hero_state.refill_frac or 1
-    local collected, gold = {}, 0
+    local collected, collected_values, gold = {}, {}, 0
     for i = 1, #seq do
         local tg    = seq[i]
         local start = clock + Route._leg_time(pos, tg, hero_state, opts)
@@ -1030,6 +1030,7 @@ function Route._timeline(seq, hero_state, opts)
             end
             if hp   then hp   = hmax * frac end
             collected[#collected + 1] = tg
+            collected_values[#collected_values + 1] = 0
             clock, pos = finish, tg.pos
         else
             local past_to = tg.window and tg.window.to and finish > tg.window.to
@@ -1045,6 +1046,7 @@ function Route._timeline(seq, hero_state, opts)
                     local age = start - (tg.born or now)
                     if age > 0 then v = math.max(tg.value_floor or 0, v - tg.decay_per_s * age) end
                 end
+                collected_values[#collected_values + 1] = v
                 gold = gold + v
                 if mana then mana = mana - (tg.mana_cost or 0) end
                 if hp   then hp   = hp   - (tg.hp_cost   or 0) end
@@ -1054,7 +1056,7 @@ function Route._timeline(seq, hero_state, opts)
             end
         end
     end
-    return { collected = collected, gold = gold, time = clock - now }
+    return { collected = collected, collected_values = collected_values, gold = gold, time = clock - now }
 end
 
 ---risk-adjusted objective of a FIXED sequence: sum(value) - risk_weight*sum(risk) over the COLLECTED
@@ -1081,7 +1083,7 @@ function Route._score(seq, hero_state, opts)
         g = 0
         local w = 1
         for i = 1, #tl.collected do
-            g = g + w * (tl.collected[i].value or 0)
+            g = g + w * (tl.collected_values[i] or 0)
             w = w * dec
         end
     end
