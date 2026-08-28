@@ -327,6 +327,122 @@ function Farm.ObservedFarmers(hero_pts, camps, dwell, opts)
     return marks
 end
 
+function Farm.UpdateActiveCamp(samples, state, ctx, opts)
+    state, ctx, opts = state or {}, ctx or {}, opts or {}
+    local now, hero = ctx.now, ctx.hero_pos
+    if type(now) ~= "number" or not hero or type(hero.x) ~= "number" or type(hero.y) ~= "number" then
+        return {samples={}}, nil, "invalid"
+    end
+
+    local start_r = opts.start_radius or 650
+    local leave_r = opts.leave_radius or 950
+    local provisional_s = opts.provisional_s or 0.8
+    local grace_s = opts.evidence_grace_s or 2.25
+    local credit_s = opts.attack_credit_s or 1.0
+    local ally_r = opts.ally_radius or 750
+    local previous = type(state.samples) == "table" and state.samples or {}
+    local current, snapshots = {}, {}
+
+    local function distance2(pos)
+        local dx, dy = pos.x - hero.x, pos.y - hero.y
+        return dx * dx + dy * dy
+    end
+
+    local function live(sample)
+        return sample and sample.live ~= false and type(sample.count) == "number" and sample.count > 0
+            and type(sample.ehp) == "number" and sample.ehp > 0 and sample.pos
+    end
+
+    local function dropped(sample)
+        local old = previous[sample.key]
+        return old and old.live ~= false
+            and ((type(old.count) == "number" and sample.count < old.count)
+                or (type(old.ehp) == "number" and sample.ehp < old.ehp))
+    end
+
+    local function contested(sample)
+        return Farm.IsContestedByAlly(sample.pos, ctx.allies or {}, {
+            radius=ally_r,
+            min_value=0,
+        }) == true
+    end
+
+    for _, sample in ipairs(samples or {}) do
+        if type(sample) == "table" and type(sample.key) == "string" and sample.pos then
+            current[sample.key] = sample
+            snapshots[sample.key] = {
+                count=sample.count,
+                ehp=sample.ehp,
+                live=sample.live ~= false,
+            }
+        end
+    end
+
+    local active = state.key and current[state.key] or nil
+    local out = {
+        samples=snapshots,
+        key=state.key,
+        confirmed=state.confirmed == true,
+        started_at=state.started_at,
+        own_attack_at=state.own_attack_at,
+        last_evidence_at=state.last_evidence_at,
+    }
+
+    if active then
+        if not live(active) then
+            out.key, out.confirmed = nil, false
+            return out, nil, "empty"
+        end
+        local d2 = distance2(active.pos)
+        if d2 > leave_r * leave_r then
+            out.key, out.confirmed = nil, false
+            return out, nil, "left"
+        end
+        if ctx.attacking == true and d2 <= start_r * start_r then out.own_attack_at = now end
+        local has_credit = not contested(active)
+            or (type(out.own_attack_at) == "number" and now - out.own_attack_at <= credit_s)
+        if dropped(active) and has_credit then
+            out.confirmed, out.last_evidence_at = true, now
+        end
+        if out.confirmed then
+            if type(out.last_evidence_at) == "number" and now - out.last_evidence_at <= grace_s then
+                return out, out.key, "confirmed"
+            end
+        elseif type(out.started_at) == "number" and now - out.started_at <= provisional_s then
+            return out, out.key, "provisional"
+        end
+        out.key, out.confirmed = nil, false
+    end
+
+    local best, best_d2, best_confirmed, best_reason
+    for _, sample in ipairs(samples or {}) do
+        if live(sample) then
+            local d2 = distance2(sample.pos)
+            if d2 <= start_r * start_r then
+                local attack = ctx.attacking == true
+                local hp_drop = dropped(sample)
+                local has_credit = not contested(sample) or attack
+                if attack or (hp_drop and has_credit) then
+                    if not best or d2 < best_d2 then
+                        best, best_d2 = sample, d2
+                        best_confirmed = hp_drop and has_credit
+                        best_reason = best_confirmed and "health_drop" or "attack"
+                    end
+                end
+            end
+        end
+    end
+    if best then
+        out.key = best.key
+        out.confirmed = best_confirmed == true
+        out.started_at = now
+        out.own_attack_at = ctx.attacking == true and now or nil
+        out.last_evidence_at = out.confirmed and now or nil
+        return out, out.key, best_reason
+    end
+    return out, nil, "none"
+end
+
 -- Tinker farm: valuation / clear-feasibility / scoring / ally-respect helpers.
 -- Hero-agnostic and PURE: the hero precomputes per-creep hp (Entity.GetHealth),
 -- gold (NPC.GetGoldBountyMax), and ally values (lib/hero_value), passing plain

@@ -10,7 +10,7 @@ This is an early Luna-only baseline. The current version favors nearby, reachabl
 - Mode: visual advice only
 - Route length: 2 to 4 steps
 - Data: visible lane waves and neutral-camp information available through the Umbrella libraries
-- Safety model: basic map-side risk only; enemy and ally presence are planned later
+- Safety model: basic map-side risk; nearby allies are used only to avoid misattributing their camp damage to Luna
 
 This project is still being tested. Treat every recommendation as advice, especially around dangerous areas and fog.
 
@@ -25,6 +25,8 @@ This project is still being tested. Treat every recommendation as advice, especi
 - `lib/map_data.lua` — shared Dota map positions
 - `lib/route.lua` — standalone shared route planner
 - `tools/test_carry_farm_coach.lua` — planner behavior tests
+- `tools/test_active_camp.lua` — active-camp ownership and release tests
+- `tools/test_active_camp_wiring.lua` — callback integration test for active-camp route locking
 - `tools/test_carry_farm_coach_compat.lua` — compatibility checks
 - `tools/test_route_distance.lua` — verifies path-distance support in both route planners
 - `tools/test_repository_load.lua` — verifies a fresh checkout has every required Lua dependency

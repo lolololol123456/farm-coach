@@ -66,6 +66,7 @@ local State = {
     previous_plan = nil,
     calibration = Coach.NewCalibration(),
     clear_sample = nil,
+    active_camp = nil,
     next_sample_at = 0,
     last_reason = "initial",
     diag = nil,
@@ -211,7 +212,7 @@ local function reset_runtime(lifecycle)
     State.hero, State.team, State.match_id = nil, nil, nil
     State.camp_seen, State.camp_cleared_until = {}, {}
     State.opportunities, State.opportunity_by_key = {}, {}
-    State.plan, State.previous_plan, State.clear_sample = nil, nil, nil
+    State.plan, State.previous_plan, State.clear_sample, State.active_camp = nil, nil, nil, nil
     State.calibration = Coach.ResetMatch(State.calibration)
     State.visual_pos, State.last_draw_at, State.last_log_signature = {}, nil, nil
     State.path_cache = {}
@@ -269,7 +270,7 @@ local function hero_profile(hero)
 end
 
 local function camp_opportunities(t, profile)
-    local out, by_key = {}, {}
+    local out, by_key, activity = {}, {}, {}
     State.confirmed_empty = {}
     local camps = Map.Camps() or {}
     local neutrals = Map.AllNeutrals() or {}
@@ -287,11 +288,13 @@ local function camp_opportunities(t, profile)
                     observation = { key=key, region="jungle", pos=center, gold=gold, ehp=ehp,
                         count=count, source="live", observed_at=t, category=CAMP_KIND[cd.type] }
                     State.camp_seen[key] = observation
+                    activity[#activity+1] = {key=key,pos=center,ehp=ehp,count=count,live=true}
                 end
             elseif key and center and camp_visible(center) then
                 State.camp_seen[key] = nil
                 State.camp_cleared_until[key] = Coach.NextRespawnBoundary(t)
                 State.confirmed_empty[key] = true
+                activity[#activity+1] = {key=key,pos=center,ehp=0,count=0,live=false}
             elseif key then
                 local seen = State.camp_seen[key]
                 if seen and t - seen.observed_at <= K.CAMP_CACHE_MAX_S then
@@ -318,7 +321,7 @@ local function camp_opportunities(t, profile)
             end
         end
     end
-    return out, by_key
+    return out, by_key, activity
 end
 
 local function lane_push_dirs(team)
@@ -377,6 +380,23 @@ local function other_hero_near(pos)
     return false
 end
 
+local function allied_hero_points()
+    local out = {}
+    for _, hero in ipairs(Heroes.GetAll() or {}) do
+        if hero ~= State.hero and Entity.IsAlive(hero) and not Entity.IsDormant(hero)
+            and Entity.GetTeamNum(hero) == State.team then
+            local illusion = false
+            if NPC.IsIllusion then
+                local ok, value = pcall(NPC.IsIllusion, hero)
+                illusion = ok and value == true
+            end
+            local p = not illusion and pos_plain(Entity.GetAbsOrigin(hero)) or nil
+            if p then out[#out+1] = {pos=p,value=1} end
+        end
+    end
+    return out
+end
+
 -- Clear-time learning and route planning
 
 local function update_learning(t, profile)
@@ -431,19 +451,40 @@ local function reason_text(plan)
 end
 
 local function recalculate(t, profile)
-    local camps, camp_by = camp_opportunities(t, profile)
+    local camps, camp_by, activity = camp_opportunities(t, profile)
     local waves, wave_by, lanes = wave_opportunities(t, profile)
     local all, by_key = {}, {}
     for _, o in ipairs(camps) do all[#all+1]=o; by_key[o.key]=o end
     for _, o in ipairs(waves) do all[#all+1]=o; by_key[o.key]=o end
     State.opportunities, State.opportunity_by_key = all, by_key
 
+    local attacking = false
+    if NPC.IsAttacking then
+        local ok, value = pcall(NPC.IsAttacking, State.hero)
+        attacking = ok and value == true
+    end
+    local active_key, active_reason
+    State.active_camp, active_key, active_reason = Farm.UpdateActiveCamp(activity,
+        State.active_camp, {
+            now=t,
+            hero_pos=profile.pos,
+            attacking=attacking,
+            allies=allied_hero_points(),
+        }, {
+            start_radius=K.CLEAR_START_R,
+            leave_radius=K.CLEAR_LEAVE_R,
+            provisional_s=0.8,
+            evidence_grace_s=2.25,
+            attack_credit_s=1.0,
+            ally_radius=K.OTHER_HERO_R,
+        })
+
     local respawn_boundary = Coach.PlanningBoundary(t, K.MIN_PLAN_WINDOW_S)
     if not respawn_boundary then State.plan=nil; return end
     local boundary = t + K.ROUTE_HORIZON_S
     local depth = math.max(2, math.min(4, math.floor(mget("route_depth", 3))))
-    local locked_first
-    if State.clear_sample then
+    local locked_first = active_key
+    if not locked_first and State.clear_sample then
         local current = by_key[State.clear_sample.source_key]
         if current and current.kind == "camp" and current.source == "live"
             and dist(profile.pos,current.pos) <= K.CLEAR_LEAVE_R then
@@ -467,6 +508,7 @@ local function recalculate(t, profile)
         candidates=#all, chosen=plan and #plan.steps or 0,
         reason=State.last_reason, calibration=State.calibration,
         locked_first=locked_first,
+        active_reason=active_reason,
     }
     local signature = plan and (function()
         local k={}; for i,s in ipairs(plan.steps) do k[i]=s.key end
@@ -484,6 +526,7 @@ local function recalculate(t, profile)
         time=plan and string.format("%.1f",plan.total_t) or 0,
         reason=State.last_reason,
         locked=locked_first or "none",
+        active=active_reason or "none",
     })
     update_learning(t, profile)
 end
