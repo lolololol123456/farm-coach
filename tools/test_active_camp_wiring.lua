@@ -4,7 +4,7 @@ package.path = "./?.lua;../?.lua;" .. package.path
 local hero = {id=1,pos={x=0,y=0},team=2,name="npc_dota_hero_luna"}
 local ally = {id=2,pos={x=120,y=0},team=2,name="npc_dota_hero_sven"}
 local creep = {id=3,pos={x=100,y=0},team=4,hp=900}
-local captured, planned, errors, debug_lines = nil, nil, {}, {}
+local captured, planned, errors, debug_lines, menu_paths = nil, nil, {}, {}, {}
 
 local Map = {
     Camps=function() return {{center={x=100,y=0,z=0},camp={},type=0}} end,
@@ -67,17 +67,39 @@ Logger=function() return {
     debug=function(_,message) debug_lines[#debug_lines+1]=message end,
 } end
 local widget={Get=function() return nil end}
-local group={
-    Switch=function(_,label)
+local menu_calls = {}
+local function menu_node(path, can_hold_options)
+    return {
+        Create=function(_, name)
+            local child_path = path .. "/" .. name
+            menu_calls[#menu_calls+1] = "group:" .. child_path
+            return menu_node(child_path, name == "Settings")
+        end,
+        Switch=function(_,label)
+            if not can_hold_options then error("option attached to non-group: " .. path) end
+            menu_calls[#menu_calls+1] = "option:" .. path .. "/" .. label
         if label == "Diagnostics" then return {Get=function() return true end} end
         return widget
-    end,
-    Slider=function(_,label)
+        end,
+        Slider=function(_,label)
+            if not can_hold_options then error("option attached to non-group: " .. path) end
+            menu_calls[#menu_calls+1] = "option:" .. path .. "/" .. label
         if label == "Log detail" then return {Get=function() return 3 end} end
         return widget
+        end,
+    }
+end
+Menu={
+    Find=function(...)
+        menu_paths[#menu_paths+1] = table.concat({...}, "/")
+        return nil
+    end,
+    Create=function(...)
+        local path = table.concat({...}, "/")
+        menu_paths[#menu_paths+1] = path
+        return menu_node(path, false)
     end,
 }
-Menu={Find=function() return group end,Create=function() return group end}
 Engine={IsInGame=function() return true end}
 GameRules={GetGameTime=function() return 100 end,GetGameStartTime=function() return 10 end}
 Heroes={GetLocal=function() return hero end,GetAll=function() return {hero,ally} end}
@@ -119,6 +141,14 @@ local pass = captured and captured.ctx and captured.ctx.attacking == true
     and #captured.ctx.allies == 1 and captured.ctx.allies[1].pos.x == 120
     and planned and planned.locked_first_key == "near" and saw_candidates
     and saw_rejections and saw_plan_id and saw_paths and saw_camp_change and #errors == 0
+    and menu_paths[1] == "Creeps/Main/Farm Coach"
+    and menu_paths[2] == "Creeps/Main/Farm Coach"
+    and menu_calls[1] == "group:Creeps/Main/Farm Coach/Coach"
+    and menu_calls[2] == "group:Creeps/Main/Farm Coach/Coach/Settings"
+    and menu_calls[3] == "group:Creeps/Main/Farm Coach/Visuals"
+    and menu_calls[4] == "group:Creeps/Main/Farm Coach/Visuals/Settings"
+    and menu_calls[5] == "group:Creeps/Main/Farm Coach/Diagnostics"
+    and menu_calls[6] == "group:Creeps/Main/Farm Coach/Diagnostics/Settings"
 if not pass then
     io.stderr:write(string.format("ACTIVE CAMP WIRING FAIL captured=%s allies=%s locked=%s errors=%d\n",
         tostring(captured ~= nil), tostring(captured and captured.ctx and #captured.ctx.allies),

@@ -712,9 +712,10 @@ local function recalculate(t, profile)
 end
 
 local function setup_menu()
+    local root = Menu.Find("Creeps", "Main", "Farm Coach")
+        or Menu.Create("Creeps", "Main", "Farm Coach")
     local function group(name)
-        return Menu.Find("Heroes", "Hero List", "Carry", "Farm Coach", name)
-            or Menu.Create("Heroes", "Hero List", "Carry", "Farm Coach", name)
+        return root:Create(name):Create("Settings")
     end
     local main, visual, diag = group("Coach"), group("Visuals"), group("Diagnostics")
     State.menu = {

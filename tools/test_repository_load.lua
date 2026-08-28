@@ -7,7 +7,9 @@ Logger = function()
 end
 
 local widget = {Get=function() return nil end}
-local group = {
+local group
+group = {
+    Create=function() return group end,
     Switch=function() return widget end,
     Slider=function() return widget end,
 }
