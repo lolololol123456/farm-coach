@@ -73,6 +73,17 @@ Enable `Diagnostics` in the script menu when reproducing a bad recommendation. A
 
 Please do not report a route decision from the screenshot alone—the diagnostic line contains the travel, timing, risk, and route values needed to explain it.
 
+Each diagnostic replan now has a shared `plan_id`. For a skipped-camp report, include the matching events for that ID:
+
+- `replan` — displayed route and totals;
+- `camp_candidates` and `candidate_rejections` — camp observations and the stage that excluded each candidate;
+- `path_diagnostics` — GridNav versus straight-line fallback, cache use, and measured distance;
+- `route_alternatives` and `route_timeline` — competing sequences, utility, and step timing;
+- `route_change` — why the displayed sequence changed;
+- `camp_state_change` — live, cleared, cached, estimated, and empty transitions.
+
+These events are observational only and do not alter route selection.
+
 ## Roadmap
 
 The immediate goal is a reliable simple route coach. Enemy-location risk, ally control, improved lane prediction, more carry heroes, and post-game coaching remain later work. See [TODO.md](TODO.md) for the working list.

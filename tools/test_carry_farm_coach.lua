@@ -274,6 +274,43 @@ do
     check("plan exposes ranked alternative routes for diagnostics",
         plan and type(plan.alternatives) == "table" and #plan.alternatives >= 1
         and type(plan.alternatives[1].route) == "string")
+    check("plan exposes a candidate rejection ledger",
+        plan and plan.diagnostics and type(plan.diagnostics.rejections) == "table"
+        and #plan.diagnostics.rejections > 0)
+    local rejection_reasons = {}
+    for _, row in ipairs(plan and plan.diagnostics and plan.diagnostics.rejections or {}) do
+        rejection_reasons[row.reason] = true
+    end
+    check("rejection ledger distinguishes selected candidates",
+        rejection_reasons.selected == true)
+    local diagnostic_plan = Coach.Plan({
+        opp("pick", "camp", 100, 100, 1),
+        opp("expired", "wave", 100, 100, 1, 99),
+        opp("far", "camp", 5000, 100, 1),
+        opp("slow", "camp", 200, 100, 30),
+        {key="broken"},
+    }, hero, {now=100,boundary=120}, {max_steps=1,immediate_leg_cap_s=12,pool_cap=10})
+    local diagnostic_reasons = {}
+    for _, row in ipairs(diagnostic_plan and diagnostic_plan.diagnostics.rejections or {}) do
+        diagnostic_reasons[row.key] = row.reason
+    end
+    check("rejection ledger records invalid data", diagnostic_reasons.broken == "invalid_data")
+    check("rejection ledger records expired targets", diagnostic_reasons.expired == "expired")
+    check("rejection ledger records overlong first legs", diagnostic_reasons.far == "leg_too_long")
+    check("rejection ledger records targets outside the horizon", diagnostic_reasons.slow == "outside_horizon")
+    local capped_plan = Coach.Plan({opp("keep", "camp", 100, 100, 1),
+        opp("trim", "camp", 300, 10, 8)}, hero, {now=100,boundary=120},
+        {max_steps=1,immediate_leg_cap_s=12,pool_cap=1})
+    local capped_reason
+    for _, row in ipairs(capped_plan and capped_plan.diagnostics.rejections or {}) do
+        if row.key == "trim" then capped_reason = row.reason end
+    end
+    check("rejection ledger records pool-cap trimming", capped_reason == "pool_cap")
+    check("chosen plan exposes a step-by-step timing timeline",
+        plan and type(plan.timeline) == "table" and #plan.timeline == #plan.steps
+        and type(plan.timeline[1].depart) == "number" and type(plan.timeline[1].arrive) == "number"
+        and type(plan.timeline[1].finish) == "number"
+        and plan.timeline[1].finish >= plan.timeline[1].arrive)
     check("mixed route catches expiring wave first",
         plan and plan.steps[1].key == "bottom-wave", step_keys(plan))
     check("mixed route contains lane and jungle steps",
@@ -454,6 +491,8 @@ do
     }, previous)
     check("tiny improvement preserves valid previous route",
         stable and step_keys(stable) == step_keys(previous), step_keys(stable))
+    check("stability diagnostics report a preserved previous route",
+        stable and stable.change and stable.change.stability == "preserved")
 
     local capped_stable = Coach.Plan(changed, hero, {now=100,boundary=120}, {
         max_steps=2, pool_cap=2, stability_margin=0.03,
@@ -471,6 +510,8 @@ do
     }, previous)
     check("missing first target invalidates stable route",
         invalidated and invalidated.steps[1].key ~= "old-a", step_keys(invalidated))
+    check("route-change diagnostics report invalidated previous routes",
+        invalidated and invalidated.change and invalidated.change.stability == "invalidated")
 end
 
 print(string.format("RESULT pass=%d fail=%d", pass, fail))

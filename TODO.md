@@ -26,7 +26,7 @@
 - [ ] Draw the actual `GridNav.BuildPath` polyline instead of a straight visual connector.
 - [ ] Log whether each distance used pathfinding or straight-line fallback.
 - [ ] Validate the three-second path cache against destroyed and temporary trees.
-- [ ] Improve candidate diagnostics to show the winning route and closest rejected alternative.
+- [x] Improve candidate diagnostics with rejection stages, path provenance, route timelines, route changes, and camp-state transitions.
 - [ ] Validate the 12-second maximum-leg default in real matches.
 - [ ] Validate tempo scoring against nearby small or large camp versus distant ancient decisions.
 - [ ] Revisit the 60-second route horizon after enough real route samples exist.

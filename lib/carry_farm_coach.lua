@@ -295,9 +295,10 @@ local function simulate(seq, hero, clock, opts, all)
     local pos = hero.pos
     local t = clock.now
     local travel_t, clear_t, wait_t, gold, urgent, confidence, risk_total = 0, 0, 0, 0, 0, 0, 0
-    local steps = {}
+    local steps, timeline = {}, {}
     for i = 1, #seq do
         local o = seq[i]
+        local depart = t
         local leg = route_distance(opts, pos, o.pos) / hero.move_speed
         if leg > opts.immediate_leg_cap_s then return nil end
         local arrive = t + leg
@@ -313,6 +314,8 @@ local function simulate(seq, hero, clock, opts, all)
         local step = copy_opportunity(o)
         step.value = collected_value
         steps[#steps + 1] = step
+        timeline[#timeline+1] = {key=o.key,depart=depart,arrive=arrive,wait=wait,
+            clear=o.clear_t,finish=finish,value_at_arrival=collected_value}
         t, pos = finish, o.pos
     end
     if #steps == 0 then return nil end
@@ -345,6 +348,7 @@ local function simulate(seq, hero, clock, opts, all)
         end)(),
         confidence_sum = confidence, end_setup_value = setup,
         risk_total = risk_total,
+        timeline = timeline,
         net_gold = net_gold,
         utility = net_gold / math.max(1, total_t),
         sequence_key = sequence_key(steps),
@@ -401,12 +405,19 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
         confidence_weight = positive(opts.confidence_weight) and opts.confidence_weight or 0.01,
     }
 
-    local pool, by_key = {}, {}
-    for _, o in ipairs(opportunities or {}) do
-        if valid_opportunity(o) and not by_key[o.key]
-            and (not o.expires_at or o.expires_at > clock.now) then
+    local pool, by_key, rejection_by_key = {}, {}, {}
+    for index, o in ipairs(opportunities or {}) do
+        local diag_key = type(o) == "table" and type(o.key) == "string" and o.key or ("invalid#" .. index)
+        if not valid_opportunity(o) then
+            rejection_by_key[diag_key] = "invalid_data"
+        elseif o.expires_at and o.expires_at <= clock.now then
+            rejection_by_key[diag_key] = "expired"
+        elseif not by_key[o.key] then
             local c = copy_opportunity(o)
             pool[#pool + 1], by_key[c.key] = c, c
+            rejection_by_key[c.key] = "eligible"
+        else
+            rejection_by_key[diag_key] = "duplicate"
         end
     end
     local cap = math.floor(opts.pool_cap or 12)
@@ -425,10 +436,23 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
                 kept[#kept+1],selected[old.key]=by_key[old.key],true
             end
         end
+        for _, o in ipairs(pool) do
+            if not selected[o.key] then rejection_by_key[o.key] = "pool_cap" end
+        end
         pool,by_key=kept,{}
         for _,o in ipairs(pool) do by_key[o.key]=o end
     end
     if #pool == 0 then return nil end
+
+    for _, o in ipairs(pool) do
+        local leg = route_distance(opts, hero.pos, o.pos) / hero.move_speed
+        local wait = math.max(0, o.available_at - (clock.now + leg))
+        if leg > cfg.immediate_leg_cap_s then
+            rejection_by_key[o.key] = "leg_too_long"
+        elseif clock.now + leg + wait + o.clear_t > clock.boundary then
+            rejection_by_key[o.key] = "outside_horizon"
+        end
+    end
 
     local targets = {}
     for i, o in ipairs(pool) do
@@ -482,12 +506,16 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
     if not best then return nil end
 
     local old = same_route_plan(previous, by_key, hero, clock, cfg, pool)
+    local change = {stability=previous and (old and "replaced" or "invalidated") or "new"}
     local margin = nonnegative(opts.stability_margin) and opts.stability_margin or 0
     if old then
         local best_metric = best.net_gold or best.utility
         local old_metric = old.net_gold or old.utility
         local denom = math.max(1, math.abs(old_metric))
-        if (best_metric - old_metric) / denom < margin then best = old end
+        change.margin_pct = (best_metric - old_metric) / denom * 100
+        if (best_metric - old_metric) / denom < margin then
+            best, change.stability = old, "preserved"
+        end
     end
 
     local locked_key = type(opts.locked_first_key) == "string" and opts.locked_first_key or nil
@@ -502,7 +530,10 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
                 end
             end
         end
-        if locked_best then best = locked_best end
+        if locked_best then
+            best = locked_best
+            change.stability = "locked"
+        end
     end
 
     local alternatives = {}
@@ -513,8 +544,22 @@ function Coach.Plan(opportunities, hero, clock, opts, previous)
             total_t=c.total_t, net_gold=c.net_gold, utility=c.utility,
         }
     end
+    local selected_keys = {}
+    for _, step in ipairs(best.steps or {}) do selected_keys[step.key] = true end
+    for key, reason in pairs(rejection_by_key) do
+        if selected_keys[key] then rejection_by_key[key] = "selected"
+        elseif reason == "eligible" then rejection_by_key[key] = "lost_on_score" end
+    end
+    local rejections = {}
+    for key, reason in pairs(rejection_by_key) do rejections[#rejections+1] = {key=key,reason=reason} end
+    table.sort(rejections, function(a,b) return a.key < b.key end)
     best.reason_code, best.reason_delta = reason_for(best, runner)
+    change.old_route = previous and sequence_key(previous.steps or {}) or "none"
+    change.new_route = sequence_key(best.steps or {})
+    change.trigger = best.reason_code
+    best.change = change
     best.alternatives = alternatives
+    best.diagnostics = {rejections=rejections}
     best.net_value = best.net_gold
     best.tempo_value = best.utility
     best.urgent_gold, best.confidence_sum, best.sequence_key, best.utility = nil, nil, nil, nil

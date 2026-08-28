@@ -105,12 +105,20 @@ local script = dofile("CarryFarmCoach.lua")
 script.OnUpdateEx()
 
 local saw_candidates = false
+local saw_rejections, saw_plan_id, saw_paths, saw_camp_change = false, false, false, false
 for _, line in ipairs(debug_lines) do
     if tostring(line):find("camp_candidates", 1, true) then saw_candidates = true end
+    if tostring(line):find("candidate_rejections", 1, true) then saw_rejections = true end
+    if tostring(line):find("plan_id=", 1, true) then saw_plan_id = true end
+    if tostring(line):find("path_diagnostics", 1, true)
+        and tostring(line):find("straight_fallback", 1, true) then saw_paths = true end
+    if tostring(line):find("camp_state_change", 1, true)
+        and tostring(line):find("cause=box_neutral", 1, true) then saw_camp_change = true end
 end
 local pass = captured and captured.ctx and captured.ctx.attacking == true
     and #captured.ctx.allies == 1 and captured.ctx.allies[1].pos.x == 120
-    and planned and planned.locked_first_key == "near" and saw_candidates and #errors == 0
+    and planned and planned.locked_first_key == "near" and saw_candidates
+    and saw_rejections and saw_plan_id and saw_paths and saw_camp_change and #errors == 0
 if not pass then
     io.stderr:write(string.format("ACTIVE CAMP WIRING FAIL captured=%s allies=%s locked=%s errors=%d\n",
         tostring(captured ~= nil), tostring(captured and captured.ctx and #captured.ctx.allies),

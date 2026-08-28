@@ -75,8 +75,12 @@ local State = {
     visual_pos = {},
     last_draw_at = nil,
     last_log_signature = nil,
+    last_route_diag = nil,
     path_cache = {},
+    path_diag = {},
     camp_scan_diag = {},
+    camp_state_history = {},
+    plan_id = 0,
     our_fountain = nil,
     enemy_fountain = nil,
 }
@@ -164,14 +168,25 @@ end
 
 local function walk_distance(a, b)
     local fallback = dist(a, b)
-    if not (Map and Map.Path and Vector) then return fallback end
     local key = path_key(a, b)
     local t = now() or 0
+    local function record(method, length, cache, age, reason)
+        State.path_diag[key] = {key=key,method=method,distance=length,cache=cache,
+            cache_age=age or 0,fallback_reason=reason or "none"}
+    end
+    if not (Map and Map.Path and Vector) then
+        record("straight_fallback",fallback,"miss",0,"api_unavailable")
+        return fallback
+    end
     local cached = State.path_cache[key]
-    if cached and t - cached.at <= 3 then return cached.length end
+    if cached and t - cached.at <= 3 then
+        record(cached.method or "gridnav",cached.length,"hit",t-cached.at,cached.reason)
+        return cached.length
+    end
     local ok, path = pcall(Map.Path, Vector(a.x,a.y,a.z or 0), Vector(b.x,b.y,b.z or 0))
     if not ok or type(path) ~= "table" or #path < 1 then
-        State.path_cache[key] = {at=t,length=fallback}
+        State.path_cache[key] = {at=t,length=fallback,method="straight_fallback",reason="invalid_path"}
+        record("straight_fallback",fallback,"miss",0,"invalid_path")
         return fallback
     end
     local total, previous = 0, a
@@ -180,8 +195,12 @@ local function walk_distance(a, b)
         if current then total, previous = total + dist(previous,current), current end
     end
     total = total + dist(previous,b)
-    if not finite(total) or total < fallback * 0.95 then total = fallback end
-    State.path_cache[key] = {at=t,length=total}
+    local method, reason = "gridnav", "none"
+    if not finite(total) or total < fallback * 0.95 then
+        total, method, reason = fallback, "straight_fallback", "invalid_length"
+    end
+    State.path_cache[key] = {at=t,length=total,method=method,reason=reason}
+    record(method,total,"miss",0,reason)
     return total
 end
 
@@ -216,8 +235,10 @@ local function reset_runtime(lifecycle)
     State.opportunities, State.opportunity_by_key = {}, {}
     State.plan, State.previous_plan, State.clear_sample, State.active_camp = nil, nil, nil, nil
     State.calibration = Coach.ResetMatch(State.calibration)
-    State.visual_pos, State.last_draw_at, State.last_log_signature = {}, nil, nil
+    State.visual_pos, State.last_draw_at, State.last_log_signature, State.last_route_diag = {}, nil, nil, nil
     State.path_cache = {}
+    State.plan_id = 0
+    State.camp_state_history = {}
     State.our_fountain, State.enemy_fountain = nil, nil
     State.next_sample_at, State.last_reason, State.diag = 0, "initial", nil
     State.lifecycle = lifecycle or "idle"
@@ -483,6 +504,9 @@ local function reason_text(plan)
 end
 
 local function recalculate(t, profile)
+    State.plan_id = State.plan_id + 1
+    local plan_id = State.plan_id
+    State.path_diag = {}
     local camps, camp_by, activity = camp_opportunities(t, profile)
     local waves, wave_by, lanes = wave_opportunities(t, profile)
     local all, by_key = {}, {}
@@ -549,6 +573,7 @@ local function recalculate(t, profile)
     local event_level = signature ~= State.last_log_signature and 1 or 2
     State.last_log_signature = signature
     logline(event_level, "replan", {
+        plan_id=plan_id,
         camps=#camps, waves=#waves, now=string.format("%.1f",t),
         respawn=string.format("%.0f",respawn_boundary), deadline=string.format("%.0f",boundary),
         horizon=string.format("%.1f",boundary-t),
@@ -574,13 +599,72 @@ local function recalculate(t, profile)
                 d.key,d.tier,d.gold,r.path_s,d.box,d.nearest,d.live,d.scan,d.source,
                 d.cleared_until and string.format("%.0f",d.cleared_until) or "-")
         end
-        logline(2, "camp_candidates", {items=table.concat(items,";")})
+        logline(2, "camp_candidates", {plan_id=plan_id,items=table.concat(items,";")})
+        for _, d in ipairs(State.camp_scan_diag or {}) do
+            local state, cause
+            if d.live > 0 then
+                state = "live"
+                cause = d.box > 0 and "box_neutral" or "nearest_neutral"
+            elseif d.cleared_until and d.cleared_until > t then
+                state = "cleared"
+                cause = d.scan == "cleared" and "cleared_latch" or "visible_empty"
+            elseif d.source == "cached" then
+                state, cause = "cached", "cached"
+            elseif d.source == "clock" then
+                state, cause = "estimated", "clock_estimate"
+            else
+                state, cause = "empty", "visible_empty"
+            end
+            local signature = table.concat({state,cause,d.cleared_until or "-"},":")
+            local previous = State.camp_state_history[d.key]
+            if not previous or previous.signature ~= signature then
+                logline(2, "camp_state_change", {plan_id=plan_id,key=d.key,
+                    from=previous and previous.state or "unknown",to=state,cause=cause,
+                    box=d.box,nearest=d.nearest,live=d.live,
+                    cleared_until=d.cleared_until and string.format("%.0f",d.cleared_until) or "none"})
+                State.camp_state_history[d.key] = {signature=signature,state=state}
+            end
+        end
         local alternatives = {}
         for i, a in ipairs(plan and plan.alternatives or {}) do
             alternatives[i] = string.format("%s:g%.0f:walk%.1f:t%.1f:net%.1f:u%.3f",
                 a.route,a.gold,a.travel_t,a.total_t,a.net_gold,a.utility)
         end
-        logline(2, "route_alternatives", {items=#alternatives > 0 and table.concat(alternatives,";") or "none"})
+        logline(2, "route_alternatives", {plan_id=plan_id,items=#alternatives > 0 and table.concat(alternatives,";") or "none"})
+        local rejected = {}
+        for i, row in ipairs(plan and plan.diagnostics and plan.diagnostics.rejections or {}) do
+            rejected[i] = row.key .. ":" .. row.reason
+        end
+        logline(2, "candidate_rejections", {plan_id=plan_id,items=#rejected > 0 and table.concat(rejected,";") or "none"})
+        local paths = {}
+        for _, p in pairs(State.path_diag or {}) do paths[#paths+1] = p end
+        table.sort(paths, function(a,b) return a.key < b.key end)
+        local path_items = {}
+        local path_limit = math.min(32,#paths)
+        for i = 1, path_limit do
+            local p = paths[i]
+            path_items[i] = string.format("%s:%s:d%.0f:%s:age%.1f:%s",
+                p.key,p.method,p.distance,p.cache,p.cache_age,p.fallback_reason)
+        end
+        logline(2, "path_diagnostics", {plan_id=plan_id,total=#paths,omitted=#paths-path_limit,
+            items=#path_items > 0 and table.concat(path_items,";") or "none"})
+        local timeline = {}
+        for i, step in ipairs(plan and plan.timeline or {}) do
+            timeline[i] = string.format("%s:dep%.1f:arr%.1f:wait%.1f:clear%.1f:fin%.1f:g%.0f",
+                step.key,step.depart,step.arrive,step.wait,step.clear,step.finish,step.value_at_arrival)
+        end
+        logline(2, "route_timeline", {plan_id=plan_id,items=#timeline > 0 and table.concat(timeline,";") or "none"})
+        local route_signature = plan and (function()
+            local keys={}; for i,s in ipairs(plan.steps or {}) do keys[i]=s.key end
+            return table.concat(keys,",")
+        end)() or "none"
+        if route_signature ~= State.last_route_diag then
+            local change = plan and plan.change or {}
+            logline(2, "route_change", {plan_id=plan_id,old=change.old_route or State.last_route_diag or "none",
+                new=route_signature,margin=change.margin_pct and string.format("%.2f%%",change.margin_pct) or "n/a",
+                trigger=change.trigger or "no_plan",stability=change.stability or "none"})
+            State.last_route_diag = route_signature
+        end
     end
     update_learning(t, profile)
 end
