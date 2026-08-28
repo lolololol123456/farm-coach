@@ -31,6 +31,47 @@ do
         check("an empty scan still honors an active cleared-until latch", camp_state(960, 0, 923) == "cleared")
         check("an expired cleared-until latch allows a fresh scan", camp_state(900, 0, 923) == "scan")
     end
+    local empty_evidence = Coach.UpdateCampEmptyEvidence
+    check("camp empty evidence helper is exposed", type(empty_evidence) == "function")
+    if empty_evidence then
+        local opts = { near_radius=950, confirm_s=1.5, max_gap_s=1.25 }
+        local remote, remote_clear, remote_reason = empty_evidence(nil, {
+            now=10, hero_pos={x=2000,y=0}, camp_pos={x=0,y=0}, visible=true, live_count=0,
+        }, opts)
+        check("remote center-only vision cannot clear a camp",
+            remote == nil and remote_clear == false and remote_reason == "remote_visibility")
+
+        local pending, first_clear, first_reason = empty_evidence(nil, {
+            now=10, hero_pos={x=100,y=0}, camp_pos={x=0,y=0}, visible=true, live_count=0,
+        }, opts)
+        check("nearby visible emptiness starts pending evidence",
+            type(pending) == "table" and first_clear == false and first_reason == "pending")
+
+        local still_pending, early_clear = empty_evidence(pending, {
+            now=11, hero_pos={x=100,y=0}, camp_pos={x=0,y=0}, visible=true, live_count=0,
+        }, opts)
+        check("one nearby empty scan is not enough",
+            type(still_pending) == "table" and early_clear == false)
+
+        local restarted, stale_clear, stale_reason = empty_evidence(still_pending, {
+            now=15, hero_pos={x=100,y=0}, camp_pos={x=0,y=0}, visible=true, live_count=0,
+        }, opts)
+        check("a sampling gap restarts empty confirmation",
+            type(restarted) == "table" and restarted.since == 15
+            and stale_clear == false and stale_reason == "pending")
+
+        local confirmed, did_clear, confirm_reason = empty_evidence(still_pending, {
+            now=11.6, hero_pos={x=100,y=0}, camp_pos={x=0,y=0}, visible=true, live_count=0,
+        }, opts)
+        check("repeated nearby empty scans confirm a cleared camp",
+            type(confirmed) == "table" and did_clear == true and confirm_reason == "confirmed_empty")
+
+        local cancelled, live_clear, live_reason = empty_evidence(still_pending, {
+            now=11.2, hero_pos={x=100,y=0}, camp_pos={x=0,y=0}, visible=true, live_count=2,
+        }, opts)
+        check("live neutrals cancel pending empty evidence",
+            cancelled == nil and live_clear == false and live_reason == "live")
+    end
     local nearest = Coach.NearestCampKey
     check("nearest-camp fallback helper is exposed", type(nearest) == "function")
     if nearest then

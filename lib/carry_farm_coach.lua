@@ -30,6 +30,39 @@ function Coach.CampScanState(cleared_until, live_count, now)
     return "scan"
 end
 
+function Coach.UpdateCampEmptyEvidence(state, context, options)
+    context, options = context or {}, options or {}
+    local now = context.now
+    local hero = context.hero_pos
+    local camp = context.camp_pos
+    local radius = options.near_radius
+    local confirm_s = options.confirm_s
+    local max_gap_s = options.max_gap_s
+    if not finite(now) or type(hero) ~= "table" or not finite(hero.x) or not finite(hero.y)
+        or type(camp) ~= "table" or not finite(camp.x) or not finite(camp.y)
+        or not finite(radius) or radius <= 0 or not finite(confirm_s) or confirm_s < 0
+        or not finite(max_gap_s) or max_gap_s <= 0 then
+        return nil, false, "invalid"
+    end
+    if type(context.live_count) == "number" and context.live_count > 0 then
+        return nil, false, "live"
+    end
+    if context.visible ~= true then return nil, false, "not_visible" end
+    local dx, dy = hero.x - camp.x, hero.y - camp.y
+    if dx * dx + dy * dy > radius * radius then
+        return nil, false, "remote_visibility"
+    end
+    local since = type(state) == "table" and state.since or nil
+    local last_at = type(state) == "table" and state.last_at or nil
+    if not finite(since) or not finite(last_at) or since > now or last_at > now
+        or now - last_at > max_gap_s then
+        return { since=now, last_at=now }, false, "pending"
+    end
+    local next_state = { since=since, last_at=now }
+    if now - since < confirm_s then return next_state, false, "pending" end
+    return next_state, true, "confirmed_empty"
+end
+
 function Coach.NearestCampKey(pos, camps, max_distance)
     if type(pos) ~= "table" or not finite(pos.x) or not finite(pos.y)
         or not finite(max_distance) or max_distance <= 0 then return nil end

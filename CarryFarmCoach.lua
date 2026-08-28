@@ -27,6 +27,8 @@ local K = {
     STABILITY_MARGIN = 0.03,
     CLEAR_START_R = 650,
     CLEAR_LEAVE_R = 950,
+    CAMP_EMPTY_CONFIRM_S = 1.5,
+    CAMP_EMPTY_MAX_GAP_S = 1.25,
     OTHER_HERO_R = 750,
     MIN_PLAN_WINDOW_S = 25,
     TRAVEL_GOLD_PER_S = 8,
@@ -60,6 +62,7 @@ local State = {
     lifecycle = "loaded",
     camp_seen = {},
     camp_cleared_until = {},
+    camp_empty_evidence = {},
     lane_paths = nil,
     opportunities = {},
     opportunity_by_key = {},
@@ -233,7 +236,7 @@ end
 
 local function reset_runtime(lifecycle)
     State.hero, State.team, State.match_id = nil, nil, nil
-    State.camp_seen, State.camp_cleared_until = {}, {}
+    State.camp_seen, State.camp_cleared_until, State.camp_empty_evidence = {}, {}, {}
     State.opportunities, State.opportunity_by_key = {}, {}
     State.plan, State.previous_plan, State.clear_sample, State.active_camp = nil, nil, nil, nil
     State.calibration = Coach.ResetMatch(State.calibration)
@@ -301,6 +304,18 @@ local function camp_opportunities(t, profile)
     State.confirmed_empty = {}
     local camps = Map.Camps() or {}
     local neutrals = Map.AllNeutrals() or {}
+    local function uncertain_observation(key, center, camp_type)
+        local seen = State.camp_seen[key]
+        if seen and t - seen.observed_at <= K.CAMP_CACHE_MAX_S then
+            return { key=seen.key, region=seen.region, pos=seen.pos, gold=seen.gold,
+                ehp=seen.ehp, count=seen.count, source="cached",
+                observed_at=seen.observed_at, category=seen.category }
+        end
+        local estimate = TIER_EST[camp_type] or TIER_EST[1]
+        return { key=key, region="jungle", pos=center,
+            gold=estimate.gold, ehp=estimate.hp, count=1, source="clock",
+            observed_at=t, category=CAMP_KIND[camp_type] }
+    end
     local centers, nearest_creeps = {}, {}
     for _, cd in ipairs(camps) do
         local center = cd.center and pos_plain(cd.center) or nil
@@ -325,9 +340,11 @@ local function camp_opportunities(t, profile)
             local nearest_count = key and #(nearest_creeps[key] or {}) or 0
             if key and #creeps == 0 and nearest_creeps[key] then creeps = nearest_creeps[key] end
             local observation
+            local empty_reason
             local scan_state = Coach.CampScanState(cleared_until, #creeps, t)
             if key and scan_state == "live" then
                 State.camp_cleared_until[key] = nil
+                State.camp_empty_evidence[key] = nil
                 local gold, ehp, count = creep_values(creeps)
                 if count > 0 then
                     observation = { key=key, region="jungle", pos=center, gold=gold, ehp=ehp,
@@ -336,22 +353,26 @@ local function camp_opportunities(t, profile)
                     activity[#activity+1] = {key=key,pos=center,ehp=ehp,count=count,live=true}
                 end
             elseif key and scan_state == "cleared" then
-            elseif key and center and camp_visible(center) then
-                State.camp_seen[key] = nil
-                State.camp_cleared_until[key] = Coach.NextRespawnBoundary(t)
-                State.confirmed_empty[key] = true
-                activity[#activity+1] = {key=key,pos=center,ehp=0,count=0,live=false}
+                State.camp_empty_evidence[key] = nil
             elseif key then
-                local seen = State.camp_seen[key]
-                if seen and t - seen.observed_at <= K.CAMP_CACHE_MAX_S then
-                    observation = { key=seen.key, region=seen.region, pos=seen.pos, gold=seen.gold,
-                        ehp=seen.ehp, count=seen.count, source="cached",
-                        observed_at=seen.observed_at, category=seen.category }
+                local next_evidence, confirmed
+                next_evidence, confirmed, empty_reason = Coach.UpdateCampEmptyEvidence(
+                    State.camp_empty_evidence[key], {
+                        now=t, hero_pos=profile.pos, camp_pos=center,
+                        visible=camp_visible(center), live_count=#creeps,
+                    }, {
+                        near_radius=K.CLEAR_LEAVE_R,
+                        confirm_s=K.CAMP_EMPTY_CONFIRM_S,
+                        max_gap_s=K.CAMP_EMPTY_MAX_GAP_S,
+                    })
+                State.camp_empty_evidence[key] = next_evidence
+                if confirmed then
+                    State.camp_seen[key] = nil
+                    State.camp_cleared_until[key] = Coach.NextRespawnBoundary(t)
+                    State.confirmed_empty[key] = true
+                    activity[#activity+1] = {key=key,pos=center,ehp=0,count=0,live=false}
                 else
-                    local estimate = TIER_EST[cd.type] or TIER_EST[1]
-                    observation = { key=key, region="jungle", pos=center,
-                        gold=estimate.gold, ehp=estimate.hp, count=1, source="clock",
-                        observed_at=t, category=CAMP_KIND[cd.type] }
+                    observation = uncertain_observation(key, center, cd.type)
                 end
             end
             if observation then
@@ -370,6 +391,7 @@ local function camp_opportunities(t, profile)
                     key=key, pos=center, tier=CAMP_KIND[cd.type], box=box_count,
                     nearest=nearest_count, live=#creeps, scan=scan_state,
                     source=observation and observation.source or "none",
+                    empty=empty_reason,
                     included=by_key[key] ~= nil,
                     cleared_until=State.camp_cleared_until[key],
                     gold=observation and observation.gold or 0,
