@@ -31,6 +31,20 @@ do
         check("an empty scan still honors an active cleared-until latch", camp_state(960, 0, 923) == "cleared")
         check("an expired cleared-until latch allows a fresh scan", camp_state(900, 0, 923) == "scan")
     end
+    local nearest = Coach.NearestCampKey
+    check("nearest-camp fallback helper is exposed", type(nearest) == "function")
+    if nearest then
+        local centers = {
+            {key="near",pos={x=0,y=0}},
+            {key="far",pos={x=1200,y=0}},
+        }
+        check("a neutral missed by camp boxes is assigned to one nearest camp",
+            nearest({x=260,y=0}, centers, 900) == "near")
+        check("nearest-camp assignment does not duplicate across adjacent camps",
+            nearest({x=700,y=0}, centers, 900) == "far")
+        check("a distant neutral is not assigned to any camp",
+            nearest({x=3000,y=0}, centers, 900) == nil)
+    end
     check("stable camp key matches map-library bucket",
         Coach.CampKey({x=1234,y=-567}) == "12,-6")
     check("camp key rejects malformed positions", Coach.CampKey({x=1}) == nil)

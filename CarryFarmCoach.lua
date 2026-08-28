@@ -21,6 +21,7 @@ local TIER_EST = {
 local K = {
     SAMPLE_S = 0.35,
     CAMP_CACHE_MAX_S = 45,
+    CAMP_NEAREST_FALLBACK_R = 900,
     WAVE_WINDOW_S = 30,
     IMMEDIATE_LEG_CAP_S = 12,
     STABILITY_MARGIN = 0.03,
@@ -274,12 +275,27 @@ local function camp_opportunities(t, profile)
     State.confirmed_empty = {}
     local camps = Map.Camps() or {}
     local neutrals = Map.AllNeutrals() or {}
+    local centers, nearest_creeps = {}, {}
+    for _, cd in ipairs(camps) do
+        local center = cd.center and pos_plain(cd.center) or nil
+        local key = center and camp_key(center) or nil
+        if key and center then centers[#centers+1] = {key=key,pos=center} end
+    end
+    for _, neutral in ipairs(neutrals) do
+        local p = pos_plain(Entity.GetAbsOrigin(neutral))
+        local key = p and Coach.NearestCampKey(p, centers, K.CAMP_NEAREST_FALLBACK_R) or nil
+        if key then
+            nearest_creeps[key] = nearest_creeps[key] or {}
+            nearest_creeps[key][#nearest_creeps[key]+1] = neutral
+        end
+    end
     for _, cd in ipairs(camps) do
         if cd.center and cd.camp and CAMP_KIND[cd.type] then
             local center = pos_plain(cd.center)
             local key = center and camp_key(center)
             local cleared_until = key and State.camp_cleared_until[key]
             local creeps = Map.CampCreeps(cd.camp, neutrals) or {}
+            if key and #creeps == 0 and nearest_creeps[key] then creeps = nearest_creeps[key] end
             local observation
             local scan_state = Coach.CampScanState(cleared_until, #creeps, t)
             if key and scan_state == "live" then

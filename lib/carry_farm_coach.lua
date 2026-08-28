@@ -30,6 +30,24 @@ function Coach.CampScanState(cleared_until, live_count, now)
     return "scan"
 end
 
+function Coach.NearestCampKey(pos, camps, max_distance)
+    if type(pos) ~= "table" or not finite(pos.x) or not finite(pos.y)
+        or not finite(max_distance) or max_distance <= 0 then return nil end
+    local best_key, best_d2
+    for _, camp in ipairs(camps or {}) do
+        local center = type(camp) == "table" and camp.pos or nil
+        if type(center) == "table" and finite(center.x) and finite(center.y)
+            and type(camp.key) == "string" then
+            local dx, dy = center.x - pos.x, center.y - pos.y
+            local d2 = dx * dx + dy * dy
+            if d2 <= max_distance * max_distance and (not best_d2 or d2 < best_d2) then
+                best_key, best_d2 = camp.key, d2
+            end
+        end
+    end
+    return best_key
+end
+
 local function nonnegative(v)
     return finite(v) and v >= 0
 end
