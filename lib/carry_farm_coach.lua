@@ -632,7 +632,8 @@ function Coach.BuildDiagnosticSnapshot(opportunities, plan, hero, opts, active, 
                     - travel_t * (opts.travel_cost_per_s or 0)
                     - (opportunity.risk or 0) * (opts.risk_gold or 0)
                 nearby[#nearby + 1] = {
-                    key=opportunity.key, kind=opportunity.kind, source=opportunity.source,
+                    key=opportunity.key, kind=opportunity.kind, category=opportunity.category,
+                    lane=opportunity.lane, source=opportunity.source,
                     value=opportunity.value, distance=distance, travel_t=travel_t,
                     clear_t=opportunity.clear_t, score=score,
                     confidence=opportunity.confidence, risk=opportunity.risk or 0,
@@ -664,6 +665,79 @@ function Coach.BuildDiagnosticSnapshot(opportunities, plan, hero, opts, active, 
             margin_pct=change.margin_pct},
         active={key=active and active.key or "none",confirmed=active and active.confirmed == true,
             reason=active_reason or "none"},
+    }
+end
+
+local FRIENDLY_ROUTE_REASON = {
+    BEST_NEARBY_VALUE = "Best nearby farming route",
+    LESS_DEAD_TRAVEL = "Less wasted walking",
+    HIGHER_CONFIDENCE = "More reliable farm information",
+    RESPAWN_SETUP = "Sets up the next camp spawn",
+    EXPIRING_VALUE = "Catch the wave before creeps die",
+    ONLY_VALID_ROUTE = "Only reachable farming route",
+    STABLE_ROUTE = "Current route is still good",
+}
+
+local FRIENDLY_SKIP_REASON = {
+    lost_on_score = "Skipped: worse route",
+    leg_too_long = "Skipped: too far",
+    outside_horizon = "Skipped: too far",
+    pool_cap = "Skipped: route limit",
+    expired = "Skipped: expires too soon",
+    invalid_data = "Skipped: unreliable information",
+    duplicate = "Skipped: already included",
+    unranked = "Skipped: worse route",
+}
+
+local function friendly_target(row)
+    if type(row) ~= "table" then return "No target" end
+    if row.kind == "wave" then
+        local lane = type(row.lane) == "string" and row.lane or nil
+        return lane and (lane:sub(1,1):upper() .. lane:sub(2) .. " lane wave") or "Lane wave"
+    end
+    local category = type(row.category) == "string" and row.category or nil
+    return category and (category:sub(1,1):upper() .. category:sub(2) .. " camp") or "Neutral camp"
+end
+
+function Coach.BuildTestingOverlay(snapshot, plan)
+    if type(snapshot) ~= "table" or type(plan) ~= "table" then return nil end
+    local current
+    for _, row in ipairs(snapshot.nearby or {}) do
+        if row.selected_rank == 1 then current = row break end
+    end
+    if not current and plan.steps and plan.steps[1] then
+        local step = plan.steps[1]
+        local first_leg = plan.timeline and plan.timeline[1] or nil
+        local travel_t = first_leg and finite(first_leg.arrive) and finite(first_leg.depart)
+            and math.max(0, first_leg.arrive - first_leg.depart) or 0
+        current = {
+            key=step.key, kind=step.kind, category=step.category, lane=step.lane,
+            value=step.value or step.gold or 0, travel_t=travel_t,
+            selected_rank=1,
+        }
+    end
+    local rows = {}
+    if current then
+        rows[#rows+1] = { name=friendly_target(current), chosen=true, status="CHOSEN",
+            travel_t=current.travel_t or 0, gold=current.value or 0 }
+    end
+    for _, row in ipairs(snapshot.nearby or {}) do
+        if #rows >= 3 then break end
+        if (not current or row.key ~= current.key) and not row.selected_rank then
+            rows[#rows+1] = { name=friendly_target(row), chosen=false,
+                status=FRIENDLY_SKIP_REASON[row.decision] or "Skipped: worse route",
+                travel_t=row.travel_t or 0, gold=row.value or 0 }
+        end
+    end
+    local trigger = snapshot.change and snapshot.change.trigger or ""
+    local active = snapshot.active or {}
+    return {
+        route_count=#(plan.steps or {}),
+        why=FRIENDLY_ROUTE_REASON[trigger] or "Best available farming route",
+        current_target=friendly_target(current),
+        target_lock=active.confirmed and active.key == (current and current.key)
+            and "Farming this camp" or "Not farming yet",
+        rows=rows,
     }
 end
 

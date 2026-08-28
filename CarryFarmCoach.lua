@@ -612,12 +612,17 @@ local function recalculate(t, profile)
     })
     if diagnostics() then
         if Coach.BuildDiagnosticSnapshot and Coach.PushDiagnosticHistory then
+            local diagnostic_active, diagnostic_active_reason = State.active_camp, active_reason
+            if not diagnostic_active and locked_first then
+                diagnostic_active = {key=locked_first,confirmed=true}
+                diagnostic_active_reason = State.clear_sample and "clear_sample" or "locked"
+            end
             State.diagnostic_snapshot = Coach.BuildDiagnosticSnapshot(all, plan, profile, {
                 limit=3,
                 travel_cost_per_s=mget("travel_cost",K.TRAVEL_GOLD_PER_S),
                 risk_gold=K.STRUCTURAL_RISK_GOLD,
                 distance_fn=walk_distance,
-            }, State.active_camp, active_reason)
+            }, diagnostic_active, diagnostic_active_reason)
             State.diagnostic_history = Coach.PushDiagnosticHistory(
                 State.diagnostic_history, State.diagnostic_snapshot, t, 5)
         else
@@ -930,53 +935,41 @@ end
 -- Diagnostics and protected callbacks
 
 local function draw_diagnostics()
-    if not diagnostics() or not State.diag then return end
-    local s=Render.ScreenSize(); local x,y=18,s.y*0.24
-    local lines={
-        string.format("COACH DIAG  camps=%d waves=%d candidates=%d chosen=%d",State.diag.camps,State.diag.waves,State.diag.candidates,State.diag.chosen),
-        string.format("reason=%s deadline=%.0f respawn=%.0f sample=%s",State.diag.reason,
-            State.diag.deadline or 0,State.diag.boundary,
-            State.clear_sample and State.clear_sample.source_key or "none"),
-    }
-    local snapshot = State.diagnostic_snapshot
-    if mget("candidates",false) and snapshot then
-        local active=snapshot.active or {}
-        local change=snapshot.change or {}
-        lines[#lines+1]=string.format("ACTIVE  %s  state=%s  confirmed=%s",
-            active.key or "none",active.reason or "none",active.confirmed and "yes" or "no")
-        lines[#lines+1]=string.format("CHANGE  %s  %s  %s  margin=%s",
-            change.stability or "none",change.trigger or "no_plan",change.new_route or "none",
-            change.margin_pct and string.format("%.1f%%",change.margin_pct) or "n/a")
-        lines[#lines+1]="NEARBY  path distance / travel / value / score / decision"
-        for i,row in ipairs(snapshot.nearby or {}) do
-            local rank=row.selected_rank and ("route #"..row.selected_rank) or row.decision
-            lines[#lines+1]=string.format("%d  %-12s %5.0fu  %4.1fs  %3.0fg  %4.0f  %s",
-                i,row.key,row.distance,row.travel_t,row.value,row.score,rank)
-        end
-        lines[#lines+1]="ROUTES  actual planner ranking"
-        for i,row in ipairs(snapshot.routes or {}) do
-            lines[#lines+1]=string.format("%d  %s  gold %.0f  walk %.1fs  net %.0f",
-                i,row.route,row.gold,row.travel_t,row.net_gold)
-        end
-        lines[#lines+1]="RECENT CHANGES"
-        for i,row in ipairs(State.diagnostic_history or {}) do
-            if i>3 then break end
-            lines[#lines+1]=string.format("%.0f  %s  %s  active=%s/%s",
-                row.at,row.stability,row.trigger,row.active_key,row.active_reason)
-        end
-    end
-    local detail = mget("candidates",false) and snapshot
-    local width = detail and math.min(760,s.x-36) or math.min(650,s.x-36)
-    local height = #lines*17+22
-    Render.FilledRect(Vec2(x,y),Vec2(x+width,y+height),Color(8,12,17,220),8)
-    Render.FilledRect(Vec2(x,y),Vec2(x+3,y+height),C.primary,3)
-    pcall(Render.Rect,Vec2(x,y),Vec2(x+width,y+height),C.panel_edge,8,
+    if not diagnostics() or not mget("candidates",false) then return end
+    local overlay = Coach.BuildTestingOverlay(State.diagnostic_snapshot, State.plan)
+    if not overlay then return end
+    local s=Render.ScreenSize(); local scale=mget("hud_scale",100)/100
+    local width,height=math.min(460*scale,s.x-36),math.floor((178+#overlay.rows*42)*scale)
+    local x,y=18,math.floor(s.y*0.20)
+    local font=Draw.Font(); local pad=18*scale
+    Render.FilledRect(Vec2(x,y),Vec2(x+width,y+height),Color(8,12,17,232),10*scale)
+    Render.FilledRect(Vec2(x,y),Vec2(x+4*scale,y+height),C.primary,4*scale)
+    pcall(Render.Rect,Vec2(x,y),Vec2(x+width,y+height),C.panel_edge,10*scale,
         Enum and Enum.DrawFlags and Enum.DrawFlags.RoundCornersAll or nil,1)
-    for i,line in ipairs(lines) do
-        local section = line=="NEARBY  path distance / travel / value / score / decision"
-            or line=="ROUTES  actual planner ranking" or line=="RECENT CHANGES"
-        Render.Text(Draw.Font(),12,line,Vec2(x+13,y+11+(i-1)*17),
-            i<=2 and C.text or (section and C.primary or C.muted))
+
+    Render.Text(font,math.floor(12*scale),"FARM COACH TESTING",Vec2(x+pad,y+14*scale),C.primary)
+    Render.Text(font,math.floor(14*scale),string.format("Route: %d stops",overlay.route_count),Vec2(x+pad,y+42*scale),C.text)
+    Render.Text(font,math.floor(13*scale),"Why: "..overlay.why,Vec2(x+pad,y+64*scale),C.muted)
+    Render.Text(font,math.floor(13*scale),"Current target: "..overlay.current_target,Vec2(x+pad,y+86*scale),C.text)
+    local lock_color=overlay.target_lock=="Not farming yet" and C.amber or C.value
+    Render.Text(font,math.floor(13*scale),"Target lock: "..overlay.target_lock,Vec2(x+pad,y+108*scale),lock_color)
+    Render.FilledRect(Vec2(x+pad,y+137*scale),Vec2(x+width-pad,y+138*scale),C.panel_edge)
+
+    for i,row in ipairs(overlay.rows) do
+        local row_y=y+(151+(i-1)*42)*scale
+        local color=row.chosen and C.value or C.muted
+        local summary
+        if row.chosen then
+            summary=string.format("%d. %s  -  CHOSEN  -  %.0fs away  -  %.0f gold",
+                i,row.name,row.travel_t,row.gold)
+        else
+            summary=string.format("%d. %s  -  %s",i,row.name,row.status)
+        end
+        if row.chosen then
+            Render.FilledRect(Vec2(x+10*scale,row_y-8*scale),
+                Vec2(x+width-10*scale,row_y+23*scale),Color(24,53,54,155),6*scale)
+        end
+        Render.Text(font,math.floor(13*scale),summary,Vec2(x+pad,row_y),color)
     end
 end
 

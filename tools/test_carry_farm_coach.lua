@@ -614,6 +614,50 @@ do
         and snapshot.active.reason == "confirmed"
         and snapshot.active.confirmed == true)
 
+    opportunities[3].category = "medium"
+    opportunities[2].category = "small"
+    opportunities[4].category = "large"
+    snapshot = Coach.BuildDiagnosticSnapshot(opportunities, plan,
+        {pos={x=0,y=0},move_speed=300}, {
+            limit=4, travel_cost_per_s=5, risk_gold=100,
+        }, nil, "none")
+    local overlay = Coach.BuildTestingOverlay(snapshot, plan)
+    check("testing overlay uses human-readable route summary",
+        overlay and overlay.route_count == 2
+        and overlay.why == "Best nearby farming route"
+        and overlay.current_target == "Medium camp"
+        and overlay.target_lock == "Not farming yet")
+    check("testing overlay puts the chosen target first",
+        overlay and overlay.rows[1] and overlay.rows[1].chosen == true
+        and overlay.rows[1].name == "Medium camp"
+        and overlay.rows[1].travel_t == 2
+        and overlay.rows[1].gold == 100)
+    check("testing overlay translates skipped decisions",
+        overlay and overlay.rows[2] and overlay.rows[2].status == "Skipped: worse route"
+        and overlay.rows[3] and overlay.rows[3].status == "Skipped: route limit")
+    snapshot.nearby[1].selected_rank = 2
+    snapshot.nearby[1].decision = "selected"
+    local without_later_stop = Coach.BuildTestingOverlay(snapshot, plan)
+    check("later route stops are not mislabeled as skipped",
+        without_later_stop and without_later_stop.rows[2]
+        and without_later_stop.rows[2].name ~= "Small camp")
+    local clipped = Coach.BuildDiagnosticSnapshot(opportunities, plan,
+        {pos={x=0,y=0},move_speed=300}, {limit=1})
+    plan.timeline = {{depart=0,arrive=2,finish=6}}
+    local clipped_overlay = Coach.BuildTestingOverlay(clipped, plan)
+    check("chosen target outside nearby shortlist uses planner travel time",
+        clipped_overlay and clipped_overlay.rows[1]
+        and clipped_overlay.rows[1].travel_t == 2)
+    clipped.change.trigger = "EXPIRING_VALUE"
+    check("testing overlay explains expiring value",
+        Coach.BuildTestingOverlay(clipped, plan).why == "Catch the wave before creeps die")
+    clipped.change.trigger = "ONLY_VALID_ROUTE"
+    check("testing overlay explains the only valid route",
+        Coach.BuildTestingOverlay(clipped, plan).why == "Only reachable farming route")
+    clipped.active = {key="middle",confirmed=true,reason="clear_sample"}
+    check("clear-sample route lock displays as farming",
+        Coach.BuildTestingOverlay(clipped, plan).target_lock == "Farming this camp")
+
     local history = Coach.PushDiagnosticHistory({}, snapshot, 100, 3)
     history = Coach.PushDiagnosticHistory(history, snapshot, 101, 3)
     check("diagnostic history ignores an unchanged decision", #history == 1)
