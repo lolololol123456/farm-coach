@@ -24,6 +24,13 @@ end
 
 print("camp normalization")
 do
+    local camp_state = Coach.CampScanState
+    check("camp scan state helper is exposed", type(camp_state) == "function")
+    if camp_state then
+        check("live creeps override a stale cleared-until latch", camp_state(960, 3, 923) == "live")
+        check("an empty scan still honors an active cleared-until latch", camp_state(960, 0, 923) == "cleared")
+        check("an expired cleared-until latch allows a fresh scan", camp_state(900, 0, 923) == "scan")
+    end
     check("stable camp key matches map-library bucket",
         Coach.CampKey({x=1234,y=-567}) == "12,-6")
     check("camp key rejects malformed positions", Coach.CampKey({x=1}) == nil)

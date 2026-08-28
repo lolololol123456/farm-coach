@@ -24,6 +24,12 @@ function Coach.CampKey(pos)
     return string.format("%d,%d", math.floor(pos.x / 100), math.floor(pos.y / 100))
 end
 
+function Coach.CampScanState(cleared_until, live_count, now)
+    if type(live_count) == "number" and live_count > 0 then return "live" end
+    if finite(cleared_until) and finite(now) and now < cleared_until then return "cleared" end
+    return "scan"
+end
+
 local function nonnegative(v)
     return finite(v) and v >= 0
 end

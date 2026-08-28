@@ -281,8 +281,9 @@ local function camp_opportunities(t, profile)
             local cleared_until = key and State.camp_cleared_until[key]
             local creeps = Map.CampCreeps(cd.camp, neutrals) or {}
             local observation
-            if key and cleared_until and t < cleared_until then
-            elseif key and #creeps > 0 then
+            local scan_state = Coach.CampScanState(cleared_until, #creeps, t)
+            if key and scan_state == "live" then
+                State.camp_cleared_until[key] = nil
                 local gold, ehp, count = creep_values(creeps)
                 if count > 0 then
                     observation = { key=key, region="jungle", pos=center, gold=gold, ehp=ehp,
@@ -290,6 +291,7 @@ local function camp_opportunities(t, profile)
                     State.camp_seen[key] = observation
                     activity[#activity+1] = {key=key,pos=center,ehp=ehp,count=count,live=true}
                 end
+            elseif key and scan_state == "cleared" then
             elseif key and center and camp_visible(center) then
                 State.camp_seen[key] = nil
                 State.camp_cleared_until[key] = Coach.NextRespawnBoundary(t)

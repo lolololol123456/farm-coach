@@ -31,6 +31,7 @@ local Lane = {
     ExpectedWave=function() return {count=4} end,
 }
 local Coach = {
+    CampScanState=function(_,live_count) return live_count > 0 and "live" or "scan" end,
     NewCalibration=function() return {} end,
     ResetMatch=function() return {} end,
     ColdClearEstimate=function() return 5 end,
